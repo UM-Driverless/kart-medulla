@@ -40,7 +40,10 @@ finished, pushed and still sit here awaiting that confirmation; several do.
   checked. Capture is implemented on `dev`: both-edge interrupts on GPIO 16/47/21, raw states,
   per-channel counts, timing and initialization status appended to health telemetry. The
   serial monitor is `tools/monitor_halls.py`; procedure and field definitions are in
-  `docs/motor-halls.md`. Flash and verify all three channels by turning the motor by hand.
+  `docs/motor-halls.md`. Flashed `f4ac188` from the Mac on 2026-09-19 with only USB connected;
+  eight health frames confirmed capture initialization succeeded, states 0/0/0 and no edges.
+  Still verify all three channels with the motor connected and turned by hand; this bare-board
+  test does not validate U5 or the Hall wiring.
   For speed/direction, establish the Hall sequence and transitions per mechanical revolution
   before implementing calibrated conversion. Dashboard presentation remains a follow-up;
   the existing Orin receiver forwards the fields but does not display them. Verify the

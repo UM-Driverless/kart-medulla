@@ -2519,3 +2519,22 @@ signals, measure the Hall sequence and counts per mechanical revolution, and val
 capture at operating speed before deriving speed or direction. A quiet input cannot
 prove a healthy stationary motor. GPIO interrupts can miss edges; the multi-bit-change
 count detects some ambiguous observations but is not proof of lossless capture.
+
+## 2026-09-19 — Hall firmware flashed and bare-board startup verified on the Mac
+
+Rubén confirmed the ESP32 was installed on the PCB and connected to the Mac through
+the USB-UART port, with nothing else connected to the PCB. Uploaded firmware `f4ac188`
+from `dev` to `/dev/cu.usbmodem5C372070281` (WCH 1A86:55D3). esptool identified an
+ESP32-S3 revision v0.2. Upload at 921600 baud completed successfully in 6.97 s overall;
+the 340672-byte application was written in 2.6 s and its hash verified.
+
+Read binary telemetry at 115200 baud for eight seconds, sending no commands. All eight
+health frames contained the appended Hall fields and initialization error 0. Every
+sample reported H1/H2/H3 = 0/0/0, edge counts 0/0/0, age and interval -1, and zero
+multi-bit changes. Also received 3650 steering, 145 pneumatic, 145 pedal, eight PID
+and seven heartbeat frames with valid checksums. The serial port was closed afterwards.
+
+This validates firmware startup and Hall telemetry on the physical ESP32. With no
+motor or test signals connected, the zero readings do not validate the buffer,
+connections, channel response or speed calibration. The task remains open for those
+checks; no release merge or driven-kart validation was performed.
