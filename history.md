@@ -2550,8 +2550,11 @@ motor-connected validation remains pending; this update changes no firmware.
 ## 2026-09-19 — Current throttle uses the MCP4922; brake firmware also writes channel B
 
 The working throttle path is MCP4922 channel A over SPI, with GPIO 15 selecting the DAC through the
-MAX4660. The GPIO 38 filtered-PWM bypass was temporary and was reverted. Bench testing confirmed the
-DAC output, and the kart later accelerated from the Orin's throttle command.
+MAX4660. The GPIO 38 filtered-PWM bypass was temporary and was reverted. Driverless Telegram group
+video 12002 from 2026-08-08 records Rubén saying that the SPI connections and communication work and
+that the throttle is working “with the new DAC chip at 5 volts”; the video shows the driven wheel
+turning. The chat does not establish whether the original chip was faulty or exactly when it was
+changed. The kart later accelerated from the Orin's throttle command rather than a fixed bench value.
 
 The old task-board claim that brake remained unwritten was also stale: `control_task()` converts
 `TARGET_BRAKING` to a 0–1 value and calls `KM_ACT_SetOutput(c->brake_act, brk)`, which dispatches to

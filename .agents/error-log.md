@@ -449,3 +449,16 @@ flash time is one command and would have ended it immediately. Any long-running 
 the human is committing concurrently — this repo's tip moved twice today while work was in progress.
 The raw-bytes measurement was the right instinct and settled it in one shot; it should have come
 before the task was filed, not after.
+
+## 2026-09-19 — Claimed the original DAC was good without checking the workshop video (gpt-5.6-sol)
+
+**What happened:** Asked how the throttle had been made to work, I relied on the firmware notes and
+said the MCP4922 “was never dead; software didn’t drive SPI.” The Driverless Telegram group held the
+stronger physical record: in video 12002 from 2026-08-08, Rubén says the SPI connections and DAC
+communication work and that the throttle is working “with the new DAC chip at 5 volts,” while the
+video shows the driven wheel turning. The video does not say whether the original chip was faulty or
+exactly when it was changed, so the claim that the original chip was proved good was unsupported.
+
+**Prevention:** When a hardware result was demonstrated in Telegram media, inspect and transcribe the
+media before resolving a component-failure question from later prose notes. Separate “the circuit
+works with the fitted chip” from “the original chip was proved good.”

@@ -730,11 +730,13 @@ merely unwritten.
 
 Try `spi-fix` first — it costs one flash and no solder.
 
-> **RESOLVED (Rubén, 2026-08-10): the MCP4922 is not dead — SPI → DAC → output was seen working on
-> the bench.** So the open question at the top of this section is answered: it was never a faulty
-> chip, only an unimplemented write. The SPI write is now in `km_gpio.c`, the GPIO 38 PWM route was
-> reverted, and MCP4922 channel A is the working throttle path. The physical board still needs an
-> inspection for any flying wire or lifted DAC pin left from the proposed PWM rework.
+> **RESOLVED (Driverless group video 12002, 2026-08-08): throttle works through the external DAC.**
+> Rubén says in the video that the SPI connections and communication with the DAC work, and that it
+> is working “with the new DAC chip at 5 volts”; the video shows the driven wheel turning. The record
+> does not establish whether the original chip was faulty or exactly when it was changed, so do not
+> repeat the earlier claim that it was proved good. The SPI write is now in `km_gpio.c`, GPIO 15
+> selects the DAC through the mux, and the GPIO 38 PWM route was reverted. Inspect the physical board
+> for any flying wire or lifted DAC pin left from the proposed PWM rework.
 >
 > **Update 2026-09-19:** the current control loop does write `TARGET_BRAKING` to MCP4922 channel B.
 > That channel costs no ESP32 pin — `PIN_CMD_BRAKE` is the stand-in value 201, not a GPIO. The open
