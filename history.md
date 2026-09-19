@@ -2538,3 +2538,11 @@ This validates firmware startup and Hall telemetry on the physical ESP32. With n
 motor or test signals connected, the zero readings do not validate the buffer,
 connections, channel response or speed calibration. The task remains open for those
 checks; no release merge or driven-kart validation was performed.
+
+## 2026-09-19 — Hall-speed documentation links
+
+README and `docs/motor-halls.md` now point to kart-docs' firmware page, section
+`motor-hall-speed`, for the full interrupt-to-dashboard explanation and calibration.
+The capture reference now identifies kart-brain `6680bce` as the implemented
+dashboard integration instead of saying Hall values are not displayed. Physical
+motor-connected validation remains pending; this update changes no firmware.

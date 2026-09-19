@@ -36,7 +36,8 @@ and neither is reflected by the hash alone, because rework exists on a physical 
 * **Throttle/Brake:** DAC analog outputs
 * **Comms to Orin:** UART0 binary protocol (int32 encoding, 115200 baud)
 * **Motor Hall inputs:** GPIO 16/47/21 through U5; interrupt-driven raw states and
-  counts in health telemetry. [Protocol and bench check](docs/motor-halls.md).
+  counts in health telemetry. [Protocol and bench check](docs/motor-halls.md);
+  [dashboard speed calculation and calibration](https://um-driverless.github.io/kart-docs/assembly/electronics/kart-medulla/firmware/#motor-hall-speed).
 
 ## Pin Configuration
 

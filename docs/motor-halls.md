@@ -49,8 +49,11 @@ if another component has already installed the GPIO interrupt service, that
 service's allocation flags determine whether it remains enabled during flash work.
 
 Appending eight fields adds 32 bytes per second (320 bit/s with serial framing).
-The checked local kart-brain receiver forwards trailing health fields, but its
-dashboard does not yet display the Hall values. No new message identifier is used.
+The kart-brain receiver forwards trailing health fields. Its `dev` dashboard
+implementation (`6680bce`) displays the raw Hall values and derives speed when
+calibrated; on-kart validation remains pending. No new message identifier is used.
+See [speed calculation, calibration and limitations](https://um-driverless.github.io/kart-docs/assembly/electronics/kart-medulla/firmware/#motor-hall-speed)
+for the end-to-end explanation.
 
 ## Bench validation
 
