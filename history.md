@@ -2489,3 +2489,33 @@ https://docs.espressif.com/projects/esp-idf/en/v5.1/esp32s3/api-reference/periph
 No firmware source was changed, built or flashed during this review. The historical v1
 worktree's `.git` pointer still names the old `~/repos/hardware/dv-hardware` location;
 the schematic comparison used the functioning `~/repos/dv-hardware` repository instead.
+
+## 2026-09-19 — Implemented raw motor Hall capture on dev
+
+Added `components/km_hall` for the ESP32-S3 inputs on GPIO 16/47/21. Both-edge GPIO
+interrupts accumulate raw states, per-channel counts, the last observation interval,
+edge age and a count of observations where several bits changed. The interrupt handler
+uses direct GPIO register reads and an inlined accumulator; snapshots use a critical
+section. All eight Hall states are accepted until the motor's actual sequence is measured.
+Capture initialization errors are reported explicitly. The classic ESP32 target reports
+unsupported capture and leaves its conflicting Hall/UART pins untouched.
+
+Appended eight fields to the existing 1 Hz health frame, preserving its first seven.
+This adds 32 bytes/s rather than sending one serial frame per edge. The checked local
+kart-brain receiver forwards the additional fields; its dashboard does not display them.
+`tools/monitor_halls.py` decodes the binary stream at 115200 baud, checks CRC-8, displays
+counts as unsigned and reports older firmware or unavailable capture explicitly.
+`docs/motor-halls.md` documents fields, limitations and the bench procedure.
+
+Validation: ESP32-S3 and classic ESP32 builds passed. Seventeen native C tests passed
+(three Hall observation tests and fourteen communication tests, including the extended
+health payload), plus four Python parser/display tests. A pseudo-terminal smoke test
+ran the actual monitor with pyserial against a simulated health frame and displayed
+`H1/H2/H3=1/0/1`, counts `10/12/14`, age 3 ms and interval 900 us. No physical serial
+port was opened, firmware flashed or actuator commanded.
+
+Remaining hardware work stays in `tasks.md`: verify the installed U5 and all three
+signals, measure the Hall sequence and counts per mechanical revolution, and validate
+capture at operating speed before deriving speed or direction. A quiet input cannot
+prove a healthy stationary motor. GPIO interrupts can miss edges; the multi-bit-change
+count detects some ambiguous observations but is not proof of lossless capture.

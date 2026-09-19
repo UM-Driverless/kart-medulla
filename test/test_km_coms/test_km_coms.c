@@ -241,6 +241,26 @@ void test_two_messages_in_sequence(void) {
 
 /* ── Runner ──────────────────────────────────────────────────────────── */
 
+void test_extended_health_frame(void) {
+    reset_uart();
+    int32_t fields[15] = {7, 12, 200, 0, 100, 0, -1,
+                         0, 5, -1, 2, 3, 50, 1000, 0};
+    TEST_ASSERT_EQUAL(1, KM_COMS_SendMsg(ESP_HEALTH_STATUS, fields, 15));
+    TEST_ASSERT_EQUAL(64, fake_uart_tx_len);
+    TEST_ASSERT_EQUAL_UINT8(60, fake_uart_tx_buf[1]);
+    TEST_ASSERT_EQUAL_UINT8(ESP_HEALTH_STATUS, fake_uart_tx_buf[2]);
+    for (unsigned i = 0; i < 15; ++i) {
+        unsigned offset = 3 + 4 * i;
+        uint32_t decoded = ((uint32_t)fake_uart_tx_buf[offset] << 24)
+                         | ((uint32_t)fake_uart_tx_buf[offset + 1] << 16)
+                         | ((uint32_t)fake_uart_tx_buf[offset + 2] << 8)
+                         | fake_uart_tx_buf[offset + 3];
+        TEST_ASSERT_EQUAL_UINT32((uint32_t)fields[i], decoded);
+    }
+    TEST_ASSERT_EQUAL_UINT8(KM_COMS_crc8(60, ESP_HEALTH_STATUS, fake_uart_tx_buf + 3),
+                            fake_uart_tx_buf[63]);
+}
+
 int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_crc8_deterministic);
@@ -250,6 +270,7 @@ int main(void) {
     RUN_TEST(test_send_single_int32);
     RUN_TEST(test_send_negative_int32);
     RUN_TEST(test_send_too_long_payload);
+    RUN_TEST(test_extended_health_frame);
     RUN_TEST(test_round_trip_steering);
     RUN_TEST(test_round_trip_throttle);
     RUN_TEST(test_round_trip_braking);

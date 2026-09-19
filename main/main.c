@@ -31,6 +31,7 @@
 #include "km_sdir_pwm.h"
 #include "km_sta.h"
 #include "km_gpio.h"
+#include "km_hall.h"
 #include "km_objects.h"
 
 static const char *TAG = "MAIN";
@@ -1018,7 +1019,7 @@ void health_task(void *ctx) {
             steer_trip_age_s = (int32_t)(age_us / 1000000);
         }
 
-        int32_t payload[7] = {
+        int32_t payload[7 + KM_HALL_FIELDS] = {
             flags,
             (int32_t)agc,
             (int32_t)heap_kb,
@@ -1027,7 +1028,8 @@ void health_task(void *ctx) {
             (int32_t)KM_SDIR_PWM_GetRejectCount(),
             steer_trip_age_s
         };
-        KM_COMS_SendMsg(ESP_HEALTH_STATUS, payload, 7);
+        KM_HALL_GetTelemetry(&payload[7]);
+        KM_COMS_SendMsg(ESP_HEALTH_STATUS, payload, 7 + KM_HALL_FIELDS);
 
         // Echo the steering gains actually in force. This is the only thing that
         // tells the dashboard the truth: an ESP32 reset clears the override and
@@ -1096,6 +1098,11 @@ void system_init(void) {
     g_gpio_init_err = (int32_t)KM_GPIO_Init();
     if(g_gpio_init_err != ESP_OK)
         ESP_LOGE(TAG, "Error inicializando libreria gpio\n");
+
+    /* Independent of the actuator setup; failure is visible in health telemetry. */
+    esp_err_t hall_ret = KM_HALL_Begin();
+    if (hall_ret != ESP_OK)
+        ESP_LOGW(TAG, "Hall capture unavailable: %s", esp_err_to_name(hall_ret));
 
     // Initialise tasks
     KM_RTOS_Init();

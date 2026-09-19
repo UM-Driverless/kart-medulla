@@ -37,10 +37,13 @@ finished, pushed and still sit here awaiting that confirmation; several do.
 
 - [ ] **Implement and validate the three motor Hall inputs** (updated 2026-09-19).
   Rubén reports that the input chip is now installed; its electrical operation has not yet been
-  checked. Firmware defines Hall 1/2/3 on GPIO 16/47/21 but does not configure or read them.
-  First expose raw states and edge counts and verify all three while turning the motor by hand.
-  For speed/direction, capture both edges with timestamps and decode the observed Hall sequence;
-  establish transitions per mechanical revolution before converting to speed. Verify the
+  checked. Capture is implemented on `dev`: both-edge interrupts on GPIO 16/47/21, raw states,
+  per-channel counts, timing and initialization status appended to health telemetry. The
+  serial monitor is `tools/monitor_halls.py`; procedure and field definitions are in
+  `docs/motor-halls.md`. Flash and verify all three channels by turning the motor by hand.
+  For speed/direction, establish the Hall sequence and transitions per mechanical revolution
+  before implementing calibrated conversion. Dashboard presentation remains a follow-up;
+  the existing Orin receiver forwards the fields but does not display them. Verify the
   sensor-side pull-ups if the motor outputs are open-collector: the v1 schematic has only series
   resistors at U5's inputs. Investigation and sources: `history.md`, 2026-09-19.
 

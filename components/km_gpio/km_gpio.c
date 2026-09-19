@@ -314,7 +314,7 @@ esp_err_t KM_GPIO_Init(void)
     if (ret != ESP_OK) return ret;
 #endif
 
-    /* HALL SENSORS — only HALL2 (GPIO33) available; HALL1/3 pins used by UART2 */
+    /* Motor Hall inputs are configured by KM_HALL_Begin() on ESP32-S3. */
 
     /* ======================== I2C ======================== */
     i2c_config_t i2c_cfg = {
