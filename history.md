@@ -2546,3 +2546,15 @@ README and `docs/motor-halls.md` now point to kart-docs' firmware page, section
 The capture reference now identifies kart-brain `6680bce` as the implemented
 dashboard integration instead of saying Hall values are not displayed. Physical
 motor-connected validation remains pending; this update changes no firmware.
+
+## 2026-09-19 — Current throttle uses the MCP4922; brake firmware also writes channel B
+
+The working throttle path is MCP4922 channel A over SPI, with GPIO 15 selecting the DAC through the
+MAX4660. The GPIO 38 filtered-PWM bypass was temporary and was reverted. Bench testing confirmed the
+DAC output, and the kart later accelerated from the Orin's throttle command.
+
+The old task-board claim that brake remained unwritten was also stale: `control_task()` converts
+`TARGET_BRAKING` to a 0–1 value and calls `KM_ACT_SetOutput(c->brake_act, brk)`, which dispatches to
+MCP4922 channel B on the S3. The remaining brake blocker is on the fabricated v1 board: U13.10 to
+U1.3 is unrouted and CN10.2 is connected to the unamplified DAC node. No Telegram record from the
+2026-07/08 workshop period shows that cut-and-jumper repair being completed.

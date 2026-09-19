@@ -687,12 +687,14 @@ only to the PID frame.
 
 - ~~**`KM_GPIO_WriteDAC()` is not ported to the MCP4922.**~~ **Done** — the S3 branch calls
   `mcp4922_write()` per channel (`km_gpio.c:570-596`), and SPI → DAC → output was confirmed on the
-  bench (Rubén, 2026-08-10). Brake stays unwritten until the proportional valve is wired.
+  bench (Rubén, 2026-08-10). The control loop now writes brake commands to channel B; the remaining
+  brake blocker is the fabricated board's CN10.2 routing, not the DAC driver.
 - **Nothing drives `PIN_SDC_NOT_EMERGENCY` (GPIO 18).** R23's pulldown holds it off at boot, so the
   kart sits in emergency until firmware drives it HIGH. Until then it cannot be armed. **Safety —
   read the pin's note in `.agents/esp32s3-pinmap.md` before touching.**
-- **Nothing drives `PIN_SELECT_THROTTLE` (GPIO 15).** R32's 10 kΩ pulldown makes the default pedal
-  pass-through (safe); firmware must drive it HIGH for throttle-via-DAC.
+- ~~**Nothing drives `PIN_SELECT_THROTTLE` (GPIO 15).**~~ **Done** — R32's 10 kΩ pulldown keeps the
+  default pedal pass-through safe at boot; `control_task()` now drives the pin HIGH when autonomous
+  control is active so MCP4922 channel A reaches the kart.
 - **`PIN_STATUS_LED` (GPIO 48) needs RMT**, not plain GPIO — it's an addressable RGB.
 
 ### Throttle-DAC bypass: is the MCP4922 actually dead, or just never written to?
@@ -730,13 +732,14 @@ Try `spi-fix` first — it costs one flash and no solder.
 
 > **RESOLVED (Rubén, 2026-08-10): the MCP4922 is not dead — SPI → DAC → output was seen working on
 > the bench.** So the open question at the top of this section is answered: it was never a faulty
-> chip, only an unimplemented write. The SPI write is now in `km_gpio.c`. What remains open is only
-> the GPIO-38 PWM route on `dev` (whether it was ever soldered — see the separate task) and whether
-> that route is still wanted at all now that the DAC path works.
+> chip, only an unimplemented write. The SPI write is now in `km_gpio.c`, the GPIO 38 PWM route was
+> reverted, and MCP4922 channel A is the working throttle path. The physical board still needs an
+> inspection for any flying wire or lifted DAC pin left from the proposed PWM rework.
 >
-> **Brake (MCP4922 channel B) stays unwritten on purpose**: the proportional braking valve is not
-> wired yet (Rubén, 2026-08-10). Nothing in `main.c` writes brake, and channel B costs no ESP32 pin
-> — `PIN_CMD_BRAKE` is the stand-in value 201, not a GPIO. Leave it that way until the valve exists.
+> **Update 2026-09-19:** the current control loop does write `TARGET_BRAKING` to MCP4922 channel B.
+> That channel costs no ESP32 pin — `PIN_CMD_BRAKE` is the stand-in value 201, not a GPIO. The open
+> blocker is physical: the fabricated board leaves U13.10 → U1.3 unrouted and takes CN10.2 from the
+> unamplified DAC node.
 
 - [x] **~~GPIO 38 is now taken~~ — reverted, so 38 and 39 are both free again.** Checked 2026-08-10:
       `GPIO_NUM_38` appears nowhere in `components/`, `main/` or `platformio.ini` on `dev`. Commit
@@ -756,9 +759,9 @@ Try `spi-fix` first — it costs one flash and no solder.
   (`components/km_gpio/km_gpio.c:570-596`) dispatches ACC to `mcp4922_write(MCP4922_CH_A, …)` and
   BRAKE to channel B, and logs an error for anything else.
 
-- [ ] **Stale comment: `components/km_act/km_act.c:35`** sets `act.dacChannel = PIN_CMD_BRAKE` with
-  the trailing comment `// GPIO 26 (DAC2)`, which is the classic-ESP32 pin. On the S3 that value is
-  the MCP4922 channel-B stand-in, not a GPIO. Fix the comment.
+- [ ] **Rubén: mark the stale brake-DAC comment cleanup Done.** `components/km_act/km_act.c` now
+  distinguishes classic ESP32 GPIO 26 from the S3's MCP4922 channel-B stand-in and states that the
+  control loop writes the channel while the physical CN10.2 path remains blocked.
 
 ### Decide how a manufactured PCB is identified, then state it in all three repos
 
