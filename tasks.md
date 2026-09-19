@@ -35,20 +35,14 @@ finished, pushed and still sit here awaiting that confirmation; several do.
 
 
 
-- [ ] **Confirm whether U5 (`SN74LVC3G17DCTR`) is actually populated on the v1 PCB** (added
-  2026-08-11). A replacement chip was sourced on 2026-08-11 on the understanding that U5 was
-  "the chip we were missing" for reading the motor Hall signals — but nothing in this repo records
-  it as absent. `README.md` and `.agents/esp32s3-pinmap.md` both describe the Hall lines as reaching
-  GPIO 16/47/21 *through* U5, i.e. as a part that is there. Either the docs are describing the
-  schematic rather than the assembled board, or a specific physical board has an empty U5 pad.
-
-  **How to settle it:** look at the U5 footprint on the board in hand and read the die marking —
-  `C17` is the right part, `C04` is the `SN74LVC3G04` triple inverter. Then correct whichever of the
-  two records is wrong. Worth doing before the AliExpress lot arrives, because if U5 is populated
-  and working, the 3,49 € buy is a spare rather than a fix, and the real reason the Hall signals are
-  unread is that firmware never reads them (they appear only in a `printf` in `km_gpio.c`).
-
-  Sourcing background for the replacement is in `history.md` under 2026-08-11.
+- [ ] **Implement and validate the three motor Hall inputs** (updated 2026-09-19).
+  Rubén reports that the input chip is now installed; its electrical operation has not yet been
+  checked. Firmware defines Hall 1/2/3 on GPIO 16/47/21 but does not configure or read them.
+  First expose raw states and edge counts and verify all three while turning the motor by hand.
+  For speed/direction, capture both edges with timestamps and decode the observed Hall sequence;
+  establish transitions per mechanical revolution before converting to speed. Verify the
+  sensor-side pull-ups if the motor outputs are open-collector: the v1 schematic has only series
+  resistors at U5's inputs. Investigation and sources: `history.md`, 2026-09-19.
 
 - [ ] **`tasks.md` structure: the "Docs across kart-medulla, dv-hardware and kart-docs contradict
   the code and each other" section sits under `## Done` but holds open `- [ ]` items.** Found

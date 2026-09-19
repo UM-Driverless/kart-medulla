@@ -2454,3 +2454,38 @@ Not a new finding but worth stating once: the reason these tables kept drifting 
 hand-copied values that the code owns. Where the value is tuned (the PID gains) the docs now give
 the constant's name and location plus a snapshot, and say the Orin can override it at runtime — so
 a reader who needs the exact number knows where to look rather than trusting a table.
+
+## 2026-09-19 — Motor Hall input review after U5 installation
+
+Rubén reports that the chip serving the motor's three Hall inputs has now been installed.
+This is an assembly report, not an electrical validation. Review of firmware `e72a7d9` on
+`dev` found definitions for Hall 1/2/3 on GPIO 16/47/21, but no Hall input configuration,
+read calls, transition capture or speed calculation. `KM_GPIO_ReadDigital()` wraps
+`gpio_get_level()`; it is available but unused for the Halls. The Hall section in
+`KM_GPIO_Init()` is only a stale classic-ESP32 comment. `ESP_ACT_SPEED` is defined but has
+no sender in the reviewed application.
+
+Hardware reference: dv-hardware `84d6dd0` (kart-medulla-v1). The P1 schematic in
+`~/repos/other/dv-hardware-v1` matches that commit byte-for-byte (SHA-1
+`5b3e18dc460ecface7e8b1e464ca223b4cb02e5e`). A fresh KiCad XML netlist confirms CN7.3 →
+R1 → U5.1/1A → U5.7/1Y for Hall 1, CN2.2 → R2 → U5.3/2A → U5.5/2Y for Hall 2,
+and CN2.1 → R3 → U5.6/3A → U5.2/3Y for Hall 3. U5.8 is on +3V3, U5.4 on ground.
+The input nets contain series resistors but no board-side pull-ups. If the motor has
+open-collector outputs, the harness/controller must supply suitable pull-ups or they must
+be added before U5; an ESP32 pull-up after the buffer cannot do that job.
+
+U5 is an SN74LVC3G17 non-inverting triple Schmitt buffer, not a programmable sensor
+interface. Raw states require ordinary digital inputs. Proposed first validation: expose
+all three states and edge counts, then turn the motor by hand and verify each channel.
+For speed/direction, use both-edge interrupts with timestamps and a sequence decoder,
+rather than polling in the 2 ms control task. Establish the actual sequence, forward sign
+and transitions per mechanical revolution on the motor before publishing calibrated speed.
+For a conventional six-state Hall cycle and p pole pairs, there are 6p combined transitions
+per motor revolution. A lack of transitions alone cannot distinguish standstill from a
+disconnected or stuck sensor.
+
+Sources checked: https://www.ti.com/lit/ds/symlink/sn74lvc3g17.pdf and
+https://docs.espressif.com/projects/esp-idf/en/v5.1/esp32s3/api-reference/peripherals/gpio.html.
+No firmware source was changed, built or flashed during this review. The historical v1
+worktree's `.git` pointer still names the old `~/repos/hardware/dv-hardware` location;
+the schematic comparison used the functioning `~/repos/dv-hardware` repository instead.
