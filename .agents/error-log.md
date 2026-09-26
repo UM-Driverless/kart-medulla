@@ -472,3 +472,14 @@ the file-scope ADC conversion routine. GCC accepted the nested function but it d
 external symbol used by `main.c`. The source was recompiled, so this was not the earlier stale-build
 problem. Moving the helper to file scope fixed the build. Match a unique function boundary and
 inspect surrounding braces before inserting a helper; keep the full firmware link check.
+
+
+## 2026-09-26 — Generic arm predicate admitted a transient remote mode (GPT-6 Astra)
+
+Cross-repository review of the first safety commit found that remote-control mission plus a
+previous autonomous READY state could match the generic arm predicate before its OFF frame
+arrived, despite direct PWM being selected. The clause now applies READY/DRIVING only to
+autonomous missions; remote propulsion requires OFF plus PID. Manual pedal permission also
+requires OFF with no latch and is decided in the tested safety module. A regression sends mission
+and state updates separately, including manual selection while driving. Test transition
+combinations as well as steady modes whenever authority arrives in independent messages.

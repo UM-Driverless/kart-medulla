@@ -49,6 +49,7 @@ typedef struct {
     bool suppress_orin_emergency;
     bool was_armed;
     bool reset_hold;
+    bool allow_manual_pedal;
     bool allow_throttle;
     bool allow_steering;
     bool close_shutdown;

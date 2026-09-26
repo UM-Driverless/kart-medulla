@@ -2599,3 +2599,19 @@ compilation visible. The first build caught a nested ADC-helper insertion, corre
 in `.agents/error-log.md`. No flash or hardware safety claim: physical steering isolation is
 unconfirmed, and the shutdown-chain wire/braking still needs measurement. The task board retains
 hardware validation and an independent control-loop watchdog with hardware-safe steering inhibit.
+
+
+### 2026-09-26 — Mission/state frame-order review
+
+A cross-repository review found a transient combination when mission and state frames arrive
+separately: remote-control mission plus the previous autonomous READY state could enter the generic
+arm branch even with direct PWM selected. Remote propulsion now requires OFF plus PID explicitly;
+autonomous READY/DRIVING authority cannot apply to remote control. Manual plus DRIVING is invalid,
+so changing the mission to manual before an emergency-state frame cannot briefly restore the
+physical pedal from an armed drive. Pedal permission now belongs to the safety module too,
+requires explicit manual/OFF with no latch, and has native coverage. A regression injects both frame orders. These are software
+checks only; the existing hardware validation gate remains open.
+
+Verification after the frame-order correction: the full native suite passed 74 tests (12 safety
+policy tests); ESP32-S3 and classic builds both recompiled the changed sources and linked. No
+hardware flash was performed.

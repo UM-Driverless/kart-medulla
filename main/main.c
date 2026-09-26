@@ -576,8 +576,7 @@ void control_task(void *ctx) {
     steer_fault_latched = steering_trip;
     esp_err_t shutdown_result = KM_GPIO_SetEmergency(safety.close_shutdown ? 0 : 1);
     // A mission change cannot return propulsion to the pedal through a fault latch.
-    esp_err_t mux_result = KM_GPIO_SetThrottleSource(
-        mission != MISSION_MANUAL || safety.latched_faults != 0);
+    esp_err_t mux_result = KM_GPIO_SetThrottleSource(!safety.allow_manual_pedal);
     safety_output_ok = shutdown_result == ESP_OK && mux_result == ESP_OK;
     if (!safety_output_ok) {
         // Do not panic/reset: steering pins float during the bootloader window.

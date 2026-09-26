@@ -91,6 +91,9 @@ void test_manual_never_drives_electronic_outputs(void) {
     TEST_ASSERT_FALSE(state.allow_steering);
     TEST_ASSERT_FALSE(state.allow_throttle);
     TEST_ASSERT_FALSE(state.close_shutdown);
+    TEST_ASSERT_FALSE(state.allow_manual_pedal);
+    in.as_state=0; update();
+    TEST_ASSERT_TRUE(state.allow_manual_pedal);
 }
 void test_start_serial_order_and_remote_pid(void) {
     in.as_state=1; update();
@@ -135,6 +138,23 @@ void test_bench_comms_loss_latches_until_reset(void) {
     in.commands_fresh=true; update();
     TEST_ASSERT_FALSE(state.allow_steering);
 }
+void test_mission_state_frame_order_cannot_enable_propulsion(void) {
+    in.as_state=1; update();
+    in.mission=7; update(); // new remote mission precedes its OFF state
+    TEST_ASSERT_FALSE(state.allow_throttle);
+    TEST_ASSERT_FALSE(state.allow_steering);
+    TEST_ASSERT_FALSE(state.close_shutdown);
+    in.as_state=0; update();
+    TEST_ASSERT_TRUE(state.allow_steering);
+    TEST_ASSERT_FALSE(state.allow_throttle);
+    setUp(); drive();
+    in.mission=0; update(); // manual mission precedes emergency state
+    TEST_ASSERT_EQUAL(KM_SAFETY_INVALID_MODE,state.latched_faults);
+    TEST_ASSERT_FALSE(state.allow_throttle);
+    TEST_ASSERT_FALSE(state.allow_manual_pedal);
+    in.as_state=0; update();
+    TEST_ASSERT_FALSE(state.allow_manual_pedal);
+}
 void test_invalid_modes_fail_closed(void) {
     const int modes[]={-1,2,255};
     for (unsigned n=0;n<sizeof(modes)/sizeof(modes[0]);n++) {
@@ -153,6 +173,7 @@ int main(void) {
     RUN_TEST(test_manual_never_drives_electronic_outputs);
     RUN_TEST(test_start_serial_order_and_remote_pid);
     RUN_TEST(test_invalid_modes_fail_closed);
+    RUN_TEST(test_mission_state_frame_order_cannot_enable_propulsion);
     RUN_TEST(test_bench_comms_loss_latches_until_reset);
     RUN_TEST(test_hardware_failure_blocks_drive_and_bench);
     RUN_TEST(test_remote_reset_does_not_resume_propulsion);

@@ -9,7 +9,8 @@ void KM_SAFETY_Update(km_safety_state *s, const km_safety_inputs *i)
     const bool bench = remote && i->steering_mode == 1 && i->as_state == 0;
     const bool valid_mode = i->mission >= 0 && i->mission <= 8
         && i->as_state >= 0 && i->as_state <= 4
-        && (i->steering_mode == 0 || i->steering_mode == 1);
+        && (i->steering_mode == 0 || i->steering_mode == 1)
+        && !(manual && i->as_state == 2);
 
     uint32_t drive_faults = 0;
     if (!i->hardware_ok) drive_faults |= KM_SAFETY_HARDWARE_IO;
@@ -26,7 +27,7 @@ void KM_SAFETY_Update(km_safety_state *s, const km_safety_inputs *i)
      * missing sensors remain visible as active faults, but do not trip a drive
      * session which was never armed. Switching modes cannot clear a latch. */
     const bool arm_requested = !manual && !bench && !emergency
-        && (i->as_state == 1 || i->as_state == 2
+        && ((!remote && (i->as_state == 1 || i->as_state == 2))
             || (remote && i->as_state == 0 && i->steering_mode == 0));
     if (s->was_armed && drive_faults) s->latched_faults |= drive_faults;
     if ((s->flags & KM_SAFETY_BENCH) && s->allow_steering)
@@ -53,6 +54,7 @@ void KM_SAFETY_Update(km_safety_state *s, const km_safety_inputs *i)
     const bool healthy = !drive_faults && !s->latched_faults;
     const bool armed = arm_requested && healthy && !s->reset_hold;
     s->close_shutdown = armed;
+    s->allow_manual_pedal = manual && i->as_state == 0 && !s->latched_faults;
     s->allow_throttle = armed && (i->as_state == 2 || remote);
     s->allow_steering = (s->allow_throttle && i->steering_mode == 0)
         || (bench && valid_mode && i->hardware_ok && i->commands_fresh && i->state_fresh
