@@ -261,8 +261,44 @@ void test_extended_health_frame(void) {
                             fake_uart_tx_buf[63]);
 }
 
+void test_safety_reset_requires_positive_single_token(void) {
+    KM_OBJ_SetObjectValue(SAFETY_RESET_TOKEN, 0);
+    km_coms_msg msg = {.type=ORIN_SAFETY_RESET, .len=0};
+    KM_COMS_ProccessPayload(msg);
+    TEST_ASSERT_EQUAL(0,KM_OBJ_GetObjectValue(SAFETY_RESET_TOKEN));
+    msg.len=1; msg.payload[0]=-1; KM_COMS_ProccessPayload(msg);
+    TEST_ASSERT_EQUAL(0,KM_OBJ_GetObjectValue(SAFETY_RESET_TOKEN));
+    msg.payload[0]=42; KM_COMS_ProccessPayload(msg);
+    TEST_ASSERT_EQUAL(42,KM_OBJ_GetObjectValue(SAFETY_RESET_TOKEN));
+}
+void test_only_valid_actuator_frames_refresh_command_watchdog(void) {
+    last_cmd_tick=123;
+    km_coms_msg msg={.type=ORIN_TARG_THROTTLE,.len=0};
+    KM_COMS_ProccessPayload(msg); TEST_ASSERT_EQUAL(123,last_cmd_tick);
+    msg.type=0x3f; msg.len=1;
+    KM_COMS_ProccessPayload(msg); TEST_ASSERT_EQUAL(123,last_cmd_tick);
+    msg.type=ORIN_HEARTBEAT;
+    KM_COMS_ProccessPayload(msg); TEST_ASSERT_EQUAL(123,last_cmd_tick);
+    msg.type=ORIN_MACHINE_STATE;
+    KM_COMS_ProccessPayload(msg); TEST_ASSERT_EQUAL(123,last_cmd_tick);
+    msg.type=ORIN_TARG_STEERING;
+    KM_COMS_ProccessPayload(msg); TEST_ASSERT_EQUAL(0,last_cmd_tick);
+}
+void test_state_watchdog_is_independent(void) {
+    last_state_tick=123;
+    km_coms_msg msg={.type=ORIN_MACHINE_STATE,.len=0};
+    KM_COMS_ProccessPayload(msg); TEST_ASSERT_EQUAL(123,last_state_tick);
+    msg.type=ORIN_TARG_STEERING; msg.len=1;
+    KM_COMS_ProccessPayload(msg); TEST_ASSERT_EQUAL(123,last_state_tick);
+    msg.type=ORIN_MACHINE_STATE;
+    KM_COMS_ProccessPayload(msg); TEST_ASSERT_EQUAL(0,last_state_tick);
+}
+
 int main(void) {
     UNITY_BEGIN();
+    RUN_TEST(test_safety_reset_requires_positive_single_token);
+    RUN_TEST(test_only_valid_actuator_frames_refresh_command_watchdog);
+    RUN_TEST(test_state_watchdog_is_independent);
     RUN_TEST(test_crc8_deterministic);
     RUN_TEST(test_crc8_different_for_different_type);
     RUN_TEST(test_crc8_different_for_different_data);

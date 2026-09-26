@@ -33,6 +33,7 @@
 #include "km_gpio.h"
 #include "km_hall.h"
 #include "km_objects.h"
+#include "km_safety.h"
 
 static const char *TAG = "MAIN";
 
@@ -41,23 +42,14 @@ static const char *TAG = "MAIN";
 // setup is otherwise completely invisible, and the compressor pin would simply never be
 // driven with no indication anywhere. Shipped in the pneumatic frame so it is observable.
 static int32_t g_gpio_init_err = -1;
+static bool safety_output_ok = true;
 
-/* Set once the steering sensor is found invalid while closed-loop steering is
- * active, and never cleared while the firmware runs. Read by health_task, so it
- * is visible on the dashboard rather than only in the kart's behaviour — a
- * latched EBS that nothing reports looks identical to a brake fault. */
-static volatile bool steer_fault_latched = false;
-
-/* Boot-relative microseconds at which the latch above tripped; meaningless while
- * it is clear. Reported as an age in seconds in the health frame.
- *
- * WHY AN AGE AND NOT JUST THE FLAG. The flag alone cannot distinguish a sensor
- * failing right now from one that failed once during an earlier boot and has
- * worked ever since — the latch survives until reboot, so both render
- * identically as "TRIPPED" while HEALTH_FLAG_STEER_OK simultaneously reads
- * healthy. On 2026-08-08 that ambiguity cost hours: a stale latch was diagnosed
- * as a live sensor or code failure (see .agents/error-log.md and history.md for
- * that date). An age makes the stale case obvious at a glance. */
+/* Control owns the decision state. Communications copies a coherent report. */
+static km_safety_state safety;
+static portMUX_TYPE safety_mux = portMUX_INITIALIZER_UNLOCKED;
+static int32_t safety_report[6] = {1, 0, 0, 0, 0, 0};
+static uint32_t safety_report_generation = 0;
+static volatile bool steer_fault_latched = false;  // legacy health-frame compatibility
 static volatile int64_t steer_fault_us = 0;
 
 /* Set when a full-length compressor burst starting below PRESSURE_STALL_JUDGE_BELOW_BAR
@@ -78,13 +70,8 @@ static volatile int64_t steer_fault_us = 0;
  * comp_state 4 and nothing more. See tasks.md. */
 static volatile bool pump_stall_observed = false;
 
-/* Whether the tank is holding enough air for the EBS to be relied on. Computed in the
- * pneumatics section of control_task and read by the shutdown-circuit decision at the
- * TOP of the same function, so it is one cycle stale — 2 ms at the 500 Hz task rate,
- * against a tank that moves over seconds. Same arrangement as steer_fault_latched.
- * Starts false, so the kart boots in emergency and stays there until the tank has
- * actually been measured above the arm threshold. */
-static volatile bool tank_pressure_ok = false;
+/* Hysteresis retained between synchronous tank samples. */
+static bool tank_pressure_ok = false;
 
 /* Set to 1 (via platformio.ini build_flags) to keep ESP_LOG alive and run the
  * MCP4922 boot self-test. Off by default so a normal build stays silent on
@@ -96,24 +83,6 @@ static volatile bool tank_pressure_ok = false;
 #define MAX_ERROR_COUNT_SDIR 10
 #define COMMS_WATCHDOG_MS    1000  // Zero outputs if no command for this long
 #define MISSION_MANUAL       0     // Mission ID 0 = manual (no electronic actuation)
-/* Mission ID 7 = remote control: a human drives over the network, so the steering
- * motor must follow their commands without the Orin's state machine ever reaching
- * AS_DRIVING (it reports AS_OFF for every non-autonomous mission). This is the one
- * carve-out in the steering-authority check below. Same source of truth as the
- * states above: kart-brain's src/kb_dashboard/kb_dashboard/protocol.py, MISSIONS. */
-#define MISSION_REMOTE_CTRL  7
-
-/* Autonomous-system states as the Orin numbers them, arriving here in
- * MACHINE_STATE_ORIN via ORIN_MACHINE_STATE. Source of truth for these values is
- * kart-brain's src/kart_control/scripts/state_machine_node.py — they are written
- * out as names here rather than as bare integers so a renumbering on that side is
- * findable from this one. Only the two "meant to be moving" states appear below;
- * AS_OFF, AS_FINISHED and AS_EMERGENCY deliberately have no constant, because the
- * shutdown chain stays open in all of them and the check is written as a
- * whitelist. */
-#define AS_READY             1
-#define AS_DRIVING           2
-
 /* Sent in the steering frame's angle field when no angle is known. INT32_MIN is
  * roughly -2.1e6 radians once the consumer divides by 1000, so it cannot be
  * mistaken for a steering angle by anything that plots or acts on the number —
@@ -398,6 +367,21 @@ static float steering_read_rad(sensor_struct *sdir, int32_t *out_raw)
 void comms_task(void *ctx) {
     km_coms_ReceiveMsg();
     KM_COMS_ProccessMsgs();
+    static TickType_t last_report = 0;
+    static uint32_t sent_generation = 0;
+    TickType_t now = xTaskGetTickCount();
+    if ((now - last_report) >= pdMS_TO_TICKS(50)) {
+        int32_t payload[6];
+        portENTER_CRITICAL(&safety_mux);
+        uint32_t generation = safety_report_generation;
+        for (int n = 0; n < 6; ++n) payload[n] = safety_report[n];
+        portEXIT_CRITICAL(&safety_mux);
+        if (generation != sent_generation) {
+            KM_COMS_SendMsg(ESP_SAFETY_STATUS, payload, 6);
+            sent_generation = generation;
+        }
+        last_report = now;
+    }
 }
 
 /**
@@ -433,7 +417,7 @@ void control_task(void *ctx) {
     // ride their own ESP_PNEUMATIC frame, sent throttled further down.
     int32_t steer_raw   = -1;
     float   new_rad     = steering_read_rad(c->sdir, &steer_raw);  // NAN if unknown
-    bool    steer_valid = !isnan(new_rad);
+    bool    steer_valid = isfinite(new_rad);
 
     // Only publish an angle we actually measured. When the read is invalid,
     // ACTUAL_STEERING keeps its previous contents and is NOT sent — the frame
@@ -452,7 +436,6 @@ void control_task(void *ctx) {
         (int32_t)(last_pid_out * 1000),                // PID output (PWM duty) x 1000
         steer_valid ? 1 : 0                            // 1 = fields 1-2 are real
     };
-    KM_COMS_SendMsg(ESP_ACT_STEERING, fb, 4);
 
     TickType_t now = xTaskGetTickCount();
 
@@ -462,53 +445,10 @@ void control_task(void *ctx) {
     // cycle — including the cycles where the watchdog block returns early.
     TickType_t last_cmd = KM_COMS_GetLastCmdTick();
     int mission = (int)KM_OBJ_GetObjectValue(MISION_ORIN);
-    int comms_stale = (last_cmd == 0) || ((now - last_cmd) > pdMS_TO_TICKS(COMMS_WATCHDOG_MS));
 
-    // --- Shutdown circuit (SDC) — the one place that decides Q3's gate ---
-    //
-    // Written as a whitelist: the chain is CLOSED only while every condition
-    // below holds, and open in every other case, including any state nobody
-    // thought about. That is the opposite of the usual "assert emergency when
-    // something is wrong" shape, and it is deliberate — a condition someone
-    // forgets to add then fails safe instead of silently leaving the kart armed.
-    //
-    //   - AS_READY / AS_DRIVING: the Orin's own state machine says the kart is
-    //     meant to be able to move. AS_OFF, AS_FINISHED and AS_EMERGENCY all
-    //     leave the chain open. Note this means the ESP32 never arms the kart on
-    //     its own initiative; the Orin has to ask, every cycle, by continuing to
-    //     report one of those two states.
-    //   - COMPRESSOR_DISABLED: the operator's quiet-bench latch. A kart whose air
-    //     supply is switched off cannot refill the EBS reservoir, so it must not
-    //     also look ready to drive. This is the interlock behind the dashboard's
-    //     compressor button.
-    //   - tank_pressure_ok: the kart is holding enough air to guarantee its EBS
-    //     activations (>= EBS_TANK_ARM_BAR, with hysteresis). This is the condition
-    //     that makes starting in emergency correct rather than a fault: an empty
-    //     kart sits in emergency until the compressor brings the tank up, which is
-    //     how Formula Student expects it to behave.
-    //     (The pump-stall detector is deliberately NOT in this list — it reports
-    //     only. A broken compressor already shows up here as a tank that never
-    //     reaches the arm threshold, which is the honest reason. See
-    //     pump_stall_observed.)
-    //   - steer_fault_latched: reads the PREVIOUS cycle's value, since the fault
-    //     is detected further down this same function — a 2 ms lag at the 500 Hz
-    //     task period. Harmless, because the detection sites still call
-    //     KM_GPIO_SetEmergency(1) directly the instant they trip, so this block
-    //     can only ever re-confirm an assertion, never delay one.
-    //   - comms_stale: no fresh command from the Orin means nobody is driving.
-    //
-    // NOT WIRED YET (2026-07-26): the Q3 gate does not go anywhere, so nothing
-    // physically brakes or arms when this changes. The level is reported back in
-    // the pneumatic frame below, read off the pin, which is how the logic is
-    // checked until the gate is connected.
     bool compressor_disabled = KM_OBJ_GetObjectValue(COMPRESSOR_DISABLED) != 0;
-    int  as_state = (int)KM_OBJ_GetObjectValue(MACHINE_STATE_ORIN);
-    bool sdc_may_close = (as_state == AS_READY || as_state == AS_DRIVING)
-                      && tank_pressure_ok
-                      && !compressor_disabled
-                      && !steer_fault_latched
-                      && !comms_stale;
-    KM_GPIO_SetEmergency(sdc_may_close ? 0 : 1);
+    int as_state = (int)KM_OBJ_GetObjectValue(MACHINE_STATE_ORIN);
+    int steer_mode = (int)KM_OBJ_GetObjectValue(STEER_MODE);
 
     // --- Compressor control logic (hysteresis + soft-start ramp) ---
     // Nominally 'pump below 7 bar, stop above 8' — but see the warning below.
@@ -556,10 +496,13 @@ void control_task(void *ctx) {
     //     compressor unattended until it is measured.
 
     // Raw counts stay for telemetry; the control decision uses bar.
-    uint16_t pres1_adc = KM_GPIO_ReadADC(PIN_PRESSURE_1);
+    uint16_t pres1_adc;
+    uint32_t pres1_mv;
+    bool tank_valid = KM_GPIO_ReadTankSample(&pres1_adc, &pres1_mv)
+        && g_gpio_init_err == ESP_OK;
     uint16_t pres2_adc = KM_GPIO_ReadADC(PIN_PRESSURE_2);
-    uint32_t pres1_mv  = KM_GPIO_ReadADC_mV(PIN_PRESSURE_1);
-    float    tank_bar  = PRESSURE_BAR_PER_PIN_VOLT * (float)pres1_mv / 1000.0f;
+    float tank_bar = tank_valid
+        ? PRESSURE_BAR_PER_PIN_VOLT * (float)pres1_mv / 1000.0f : NAN;
 
     // Demand latch (hysteresis): pump below LOW, stop above HIGH, hold state in
     // between. The band is what stops the motor short-cycling at the threshold.
@@ -580,8 +523,7 @@ void control_task(void *ctx) {
     // empty tank legitimately reads 0 mV — precisely when pumping is most needed.
     // A dead sensor and an empty tank are indistinguishable by voltage alone, so
     // they are told apart by BEHAVIOUR instead: see the stall check below.
-    const uint32_t PRESSURE_MAX_VALID_MV = 2900;  // 11 dB ceiling; at/above = pegged
-    bool tank_pegged = (pres1_mv >= PRESSURE_MAX_VALID_MV);
+    bool tank_pegged = !tank_valid;
 
     // Tank-pressure interlock for the shutdown circuit, with hysteresis. This is the
     // condition that actually matters, and it is a LIVE test of the pressure rather
@@ -604,6 +546,62 @@ void control_task(void *ctx) {
     } else if (tank_bar < EBS_TANK_DISARM_BAR) {
         tank_pressure_ok = false;
     }
+
+    /* Decide and enforce permission before any telemetry can block this task. */
+    TickType_t last_state = KM_COMS_GetLastStateTick();
+    // Capture time after both timestamps: a concurrently received state must
+    // not appear to be in the future and underflow unsigned age arithmetic.
+    now = xTaskGetTickCount();
+    bool comms_stale = last_cmd == 0
+        || (now - last_cmd) > pdMS_TO_TICKS(COMMS_WATCHDOG_MS);
+    km_safety_inputs inputs = {
+        .hardware_ok = g_gpio_init_err == ESP_OK && safety_output_ok,
+        .steering_valid = steer_valid,
+        .tank_valid = tank_valid,
+        .tank_pressure_ok = tank_pressure_ok,
+        .commands_fresh = !comms_stale,
+        .state_fresh = last_state != 0
+            && (now - last_state) <= pdMS_TO_TICKS(COMMS_WATCHDOG_MS),
+        .compressor_disabled = compressor_disabled,
+        .mission = mission,
+        .as_state = as_state,
+        .steering_mode = steer_mode,
+        .targets_zero = KM_OBJ_GetObjectValue(TARGET_THROTTLE) == 0
+            && KM_OBJ_GetObjectValue(TARGET_STEERING) == 0,
+        .reset_token = (int32_t)KM_OBJ_GetObjectValue(SAFETY_RESET_TOKEN)
+    };
+    KM_SAFETY_Update(&safety, &inputs);
+    bool steering_trip = (safety.latched_faults & KM_SAFETY_STEERING) != 0;
+    if (steering_trip && !steer_fault_latched) steer_fault_us = esp_timer_get_time();
+    steer_fault_latched = steering_trip;
+    esp_err_t shutdown_result = KM_GPIO_SetEmergency(safety.close_shutdown ? 0 : 1);
+    // A mission change cannot return propulsion to the pedal through a fault latch.
+    esp_err_t mux_result = KM_GPIO_SetThrottleSource(
+        mission != MISSION_MANUAL || safety.latched_faults != 0);
+    safety_output_ok = shutdown_result == ESP_OK && mux_result == ESP_OK;
+    if (!safety_output_ok) {
+        // Do not panic/reset: steering pins float during the bootloader window.
+        inputs.hardware_ok = false;
+        KM_SAFETY_Update(&safety, &inputs);
+        esp_err_t stop_result = KM_GPIO_SetEmergency(1);
+        ESP_LOGE(TAG, "Safety output failed: shutdown=%d mux=%d emergency=%d",
+                 shutdown_result, mux_result, stop_result);
+    }
+    if (!safety.allow_throttle) KM_ACT_Stop(c->throttle_act);
+    if (!safety.allow_steering) {
+        KM_ACT_Stop(c->dir_act);
+        KM_PID_Reset(c->dir_pid);
+        last_pid_out = 0.0f;
+    }
+    portENTER_CRITICAL(&safety_mux);
+    safety_report[1] = (int32_t)safety.active_faults;
+    safety_report[2] = (int32_t)safety.latched_faults;
+    safety_report[3] = (int32_t)safety.flags;
+    safety_report[4] = safety.reset_ack_token;
+    safety_report[5] = mission;
+    ++safety_report_generation;
+    portEXIT_CRITICAL(&safety_mux);
+    KM_COMS_SendMsg(ESP_ACT_STEERING, fb, 4);
 
     static bool compressor_demand = false;
     if (compressor_disabled || tank_pegged) {
@@ -745,7 +743,7 @@ void control_task(void *ctx) {
         // in fields 0 and 2 stay for the control loop and for older consumers, but
         // turning THOSE into bar means inventing a full-scale voltage, which is
         // exactly the mistake that had the dial and the firmware disagreeing.
-        int32_t pres1_mv = (int32_t)KM_GPIO_ReadADC_mV(PIN_PRESSURE_1);
+        int32_t tank_mv_telemetry = tank_valid ? (int32_t)pres1_mv : -1;
         int32_t pres2_mv = (int32_t)KM_GPIO_ReadADC_mV(PIN_PRESSURE_2);
         int32_t pneum[10] = {
             (int32_t)pres1_adc,        // PRESSURE_1 — tank, raw ADC 0-4095
@@ -756,7 +754,7 @@ void control_task(void *ctx) {
             ledc_readback,             // duty actually held by LEDC ch1 (GPIO 3 / CN8.2)
             g_gpio_init_err,           // KM_GPIO_Init() result; 0 = ESP_OK
             sdc_readback,              // SDC pin readback: 1 = chain closed, 0 = emergency
-            pres1_mv,                  // PRESSURE_1 in mV at the pin (calibrated)
+            tank_mv_telemetry,                  // PRESSURE_1 in mV at the pin (calibrated)
             pres2_mv                   // PRESSURE_2 in mV at the pin (calibrated)
         };
         KM_COMS_SendMsg(ESP_PNEUMATIC, pneum, 10);
@@ -784,102 +782,16 @@ void control_task(void *ctx) {
     // return, meant the request was silently ignored and the readback silently lied.
     pid_apply_override(c->dir_pid, c->dir_act);
 
-    // --- Safety: comms watchdog + manual mode ---
-    // last_cmd / mission / comms_stale are computed at the top of this function,
-    // because the SDC decision needs comms_stale and must not be skipped by the
-    // early return below.
-    if (comms_stale || mission == MISSION_MANUAL) {
-        // No commands received recently OR manual mode → zero all outputs and
-        // hand the throttle line back to the pedal. Zeroing the DAC alone left
-        // the kart on a DAC-sourced throttle commanding zero; giving the mux
-        // back to the pedal means the driver keeps physical control even if a
-        // later DAC write happens, and it matches the state R32's pulldown
-        // gives us before firmware runs.
-        KM_GPIO_SetThrottleSource(false);
-        KM_ACT_Stop(c->throttle_act);
+    if (mission == MISSION_MANUAL || !inputs.commands_fresh || !inputs.state_fresh) {
         KM_ACT_Stop(c->brake_act);
-        KM_ACT_Stop(c->dir_act);
-        KM_PID_Reset(c->dir_pid);
-        last_pid_out = 0.0f;
         return;
     }
-
-    // Past the safety gate: comms are fresh and the mission is not manual, so
-    // the DAC owns the throttle. Re-asserted every cycle rather than latched,
-    // so any path that returns early above leaves the pedal in control.
-    KM_GPIO_SetThrottleSource(true);
-
-    // Steering mode: 0=PID (default), 1=direct PWM
-    int steer_mode = (int)KM_OBJ_GetObjectValue(STEER_MODE);
-
-    // Once the steering-sensor fault has tripped, it stays tripped: keep the EBS
-    // fired and the throttle at zero on every cycle, whether or not the sensor
-    // has since come back. Re-asserting each cycle rather than only on the
-    // triggering one means a later write to either output cannot quietly undo it.
-    if (steer_fault_latched) {
-        KM_GPIO_SetEmergency(1);
-        KM_ACT_Stop(c->throttle_act);
-        if (steer_mode != 1) {
-            // Open-loop direct-PWM steering stays available so the column can
-            // still be moved while diagnosing the fault. Closed-loop steering
-            // does not come back — that would be the firmware re-arming itself.
-            KM_ACT_Stop(c->dir_act);
-            KM_PID_Reset(c->dir_pid);
-            last_pid_out = 0.0f;
-            return;
-        }
-    }
-
-    // Target from Orin: interpretation depends on mode
-    float target_raw = (float)KM_OBJ_GetObjectValue(TARGET_STEERING) / 1000.0f;
-
-    // Throttle + brake: int32 effort (0-255 range from Orin). Throttle is refused
-    // outright while the steering fault is latched — the Orin does not get to
-    // command drive on a kart whose steering angle is unknown. Braking is still
-    // passed through: the EBS is doing the stopping, but there is no reason to
-    // block a brake request on top of it.
     float thr = (float)KM_OBJ_GetObjectValue(TARGET_THROTTLE) / 255.0f;
     float brk = (float)KM_OBJ_GetObjectValue(TARGET_BRAKING) / 255.0f;
-    if (steer_fault_latched) {
-        KM_ACT_Stop(c->throttle_act);
-    } else {
-        KM_ACT_SetOutput(c->throttle_act, thr);
-    }
+    if (safety.allow_throttle) KM_ACT_SetOutput(c->throttle_act, thr);
     KM_ACT_SetOutput(c->brake_act, brk);
-
-    // --- Steering authority: who is allowed to drive the motor at all ---
-    //
-    // The Orin sends a steering target continuously, in every state — its mux
-    // publishes a zero Twist whenever it has nothing to say. A zero is not a
-    // "no command": in PID mode it is a target of 0 rad, i.e. "centre the wheels
-    // and hold them there", so acting on it powers the motor against whoever is
-    // touching the wheel. On 2026-08-10 that meant selecting an autonomous mission
-    // on the dashboard moved the column, with no Start pressed, and switching
-    // steering algorithm moved it and stopped it again (kart-brain tasks.md).
-    //
-    // The protocol has no way to say "no target" — the field is an int32 and every
-    // value in it is a valid angle — so this cannot be fixed by sending something
-    // different. It is fixed here instead, which is the only place that turns the
-    // motor: the target is a request, and authority to act on it is decided by the
-    // state, not by the sender. Any number of Orin nodes may publish targets; none
-    // of them can arm the steering.
-    //
-    // Allowed only when:
-    //   - AS_DRIVING: the Orin's state machine says the kart is driving. AS_READY
-    //     is NOT enough — that is "mission selected, waiting for Start", exactly
-    //     the state that used to move the column.
-    //   - remote control: a human is driving over the network, and the Orin stays
-    //     in AS_OFF for that mission, so it never reaches AS_DRIVING.
-    // Stale comms and manual mission are already handled by the watchdog above,
-    // which stops every actuator and returns before reaching this point.
-    bool steering_may_drive = (as_state == AS_DRIVING)
-                           || (mission == MISSION_REMOTE_CTRL);
-    if (!steering_may_drive) {
-        KM_ACT_Stop(c->dir_act);
-        KM_PID_Reset(c->dir_pid);
-        last_pid_out = 0.0f;
-        return;
-    }
+    if (!safety.allow_steering) return;
+    float target_raw = (float)KM_OBJ_GetObjectValue(TARGET_STEERING) / 1000.0f;
 
     float steer_out;
     if (steer_mode == 1) {
@@ -890,28 +802,6 @@ void control_task(void *ctx) {
         steer_out = target_raw;
         // Reset PID integral so it doesn't wind up while inactive
         KM_PID_Reset(c->dir_pid);
-    } else if (!steer_valid) {
-        // PID mode with no angle feedback: the kart is driving without knowing
-        // where its wheels point. Decision (Rubén, 2026-07-26): zero the throttle
-        // and fire the EBS, which brakes hard. The steering motor stops too —
-        // there is no error term to act on, so any output would be a guess.
-        //
-        // LATCHED until reboot, deliberately. A dropout long enough to reach here
-        // has already survived the 50 ms staleness window and the median filter,
-        // so it is not a single glitched frame; and a kart that resumed
-        // autonomous steering the instant frames returned would be re-arming
-        // itself after a safety trip, which is not the firmware's call to make.
-        // How the trip should be cleared is open in tasks.md.
-        // Stamp the trip time before setting the flag, so health_task can never
-        // observe a latched fault carrying the previous stamp (or a zero one).
-        steer_fault_us = esp_timer_get_time();
-        steer_fault_latched = true;
-        KM_GPIO_SetEmergency(1);
-        KM_ACT_Stop(c->throttle_act);
-        KM_ACT_Stop(c->dir_act);
-        KM_PID_Reset(c->dir_pid);
-        last_pid_out = 0.0f;
-        return;
     } else {
         // PID mode: target_raw is angle in radians
         steer_out = KM_PID_Calculate(c->dir_pid, target_raw, new_rad);
@@ -1066,7 +956,7 @@ void health_task(void *ctx) {
                      (unsigned long)KM_SDIR_PWM_GetRejectCount());
         if (steer_fault_latched)
             ESP_LOGE(TAG, "HEALTH: steering fault LATCHED — EBS fired, throttle refused, "
-                          "reboot to clear");
+                          "healthy explicit reset required");
         if (!(flags & HEALTH_FLAG_HEAP_OK))
             ESP_LOGW(TAG, "HEALTH: low heap! %lu bytes free", (unsigned long)free_heap);
 

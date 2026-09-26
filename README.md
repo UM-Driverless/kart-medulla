@@ -211,6 +211,31 @@ loop is validated. The Orin can override all four at runtime with the `ORIN_STEE
 frame, and the firmware reports what it is actually running back in `ESP_STEER_PID` (0x0D) — so
 what the dashboard shows is the live tuning, which may differ from the defaults above.
 
+## Safety decisions
+
+`components/km_safety/` owns drive permission. The fast control loop samples steering and tank
+pressure, updates the safety module, then applies its actuator/shutdown permissions before sending
+telemetry. Health reporting does not decide whether the kart may move. A required-input failure
+inhibits startup; losing one after arming latches emergency until a healthy, disarmed explicit reset.
+Direct steering is a remote-control bench mode only: it cannot command propulsion or close the
+shutdown circuit. Autonomous steering=None keeps steering unpowered while allowing throttle
+only with healthy required sensors and DRIVING authority. A latch also prevents switching the throttle mux back to the physical pedal.
+
+`ESP_SAFETY_STATUS` (0x0F) reports six int32 fields at up to 20 Hz:
+`[1, active_faults, latched_faults, flags, reset_ack_token, mission]`. Bit definitions are in
+`components/km_safety/km_safety.h`. Reports stop advancing when control stops advancing.
+`ORIN_SAFETY_RESET` (0x2C) carries one positive increasing int32 token. Each token is attempted
+once; rejection never becomes acceptance merely because a sensor later recovers. Accepted reset
+requires healthy drive inputs, OFF or EMERGENCY state, and zero throttle/steering targets. It clears
+faults but retains an output hold until safe idle is observed before a subsequent arm request.
+
+Steering validity includes the driver's 50 ms PWM freshness check. Tank ADC reads are synchronous;
+failed or saturated samples are invalid, and the existing 6.5/6.0 bar arm/disarm hysteresis remains.
+Actuator-command and state-message freshness are checked separately, both at 1000 ms. Heartbeat
+and configuration frames cannot keep actuator commands fresh. A plausible stuck analog pressure
+cannot be detected from voltage alone. Physical shutdown braking and an independent hardware-safe
+control-loop watchdog still require the validation tracked in `tasks.md`.
+
 ## Building and Flashing
 
 ```bash

@@ -448,6 +448,20 @@ uint16_t KM_GPIO_ReadADC(gpio_num_t pin)
     }
 }
 
+bool KM_GPIO_ReadTankSample(uint16_t *raw, uint32_t *millivolts)
+{
+#if defined(CONFIG_IDF_TARGET_ESP32S3)
+    int sample = adc1_get_raw(ADC1_CHANNEL_5);  // PIN_PRESSURE_1
+#else
+    int sample = adc1_get_raw(ADC1_CHANNEL_0);  // PIN_PRESSURE_1
+#endif
+    *raw = sample >= 0 ? (uint16_t)sample : UINT16_MAX;
+    *millivolts = UINT32_MAX;
+    if (sample < 0 || sample >= 4095) return false;
+    *millivolts = esp_adc_cal_raw_to_voltage((uint32_t)sample, &adc1_chars);
+    return *millivolts < 2900;
+}
+
 /** @copydoc KM_GPIO_ReadADC_mV */
 uint32_t KM_GPIO_ReadADC_mV(gpio_num_t pin)
 {

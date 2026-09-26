@@ -359,6 +359,8 @@ uint16_t KM_GPIO_ReadADC(gpio_num_t pin);
  *          are saturated, not measurements.
  */
 uint32_t KM_GPIO_ReadADC_mV(gpio_num_t pin);
+/* One synchronous tank sample. Invalid ADC results are never converted to pressure. */
+bool KM_GPIO_ReadTankSample(uint16_t *raw, uint32_t *millivolts);
 
 /* ---------- DAC ---------- */
 

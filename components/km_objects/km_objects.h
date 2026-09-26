@@ -75,6 +75,8 @@ PID_KI,                 // integral gain x1000
 PID_KD,                 // derivative gain x1000
 PID_PWM_LIMIT,          // steering actuator output limit, 0.0-1.0 x1000
 
+SAFETY_RESET_TOKEN,     // Positive one-shot safety-reset attempt; echoed only on acceptance
+
 KM_OBJ_LAST             // Este debe de ser siempre el ultimo
 } km_objects_t;
 

@@ -119,6 +119,7 @@ typedef enum
                                          [override, kp x1000, ki x1000, kd x1000, pwm_limit x1000].
                                          Read back from the live controller after clamping, so it
                                          reports what the firmware is using, not what was asked for. */
+    ESP_SAFETY_STATUS       = 0x0F, /**< 20 Hz: [version=1, active_faults, latched_faults, flags, reset_ack_token, mission]. See km_safety.h. */
     ESP_PEDALS              = 0x0E, /**< Driver pedal positions, ~20 Hz, 4 fields:
                                          [acc_mv, brake_mv, acc_effort, brake_effort].
                                          *_mv = calibrated millivolts at the ADC pin (GPIO 4 / GPIO 5,
@@ -141,6 +142,7 @@ typedef enum
     ORIN_CALIBRATE_STEERING = 0x28, /**< Calibrate steering sensor */
     ORIN_STEER_MODE         = 0x29, /**< Steering mode: 0=PID, 1=direct PWM */
     ORIN_COMPRESSOR_DISABLE = 0x2A, /**< EBS compressor latch: 0=run normally, 1=operator disabled */
+    ORIN_SAFETY_RESET       = 0x2C, /**< One positive int32 token; acknowledgment only after a healthy, disarmed reset. */
     ORIN_STEER_PID          = 0x2B, /**< Live steering PID tuning, 5 fields:
                                          [override, kp x1000, ki x1000, kd x1000, pwm_limit x1000].
                                          override=0 restores the gains compiled into main.c and
@@ -285,5 +287,6 @@ void KM_COMS_ProccessMsgs(void);
  * @return Tick count of the last Orin→ESP32 message, or 0 if none received yet.
  */
 TickType_t KM_COMS_GetLastCmdTick(void);
+TickType_t KM_COMS_GetLastStateTick(void);
 
 #endif /* KM_COMS_H */

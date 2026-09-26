@@ -462,3 +462,13 @@ exactly when it was changed, so the claim that the original chip was proved good
 **Prevention:** When a hardware result was demonstrated in Telegram media, inspect and transcribe the
 media before resolving a component-failure question from later prose notes. Separate “the circuit
 works with the fitted chip” from “the original chip was proved good.”
+
+
+## 2026-09-26 — Safety ADC helper inserted at a nested marker (GPT-6 Astra)
+
+The first ESP32-S3 safety build failed linking `KM_GPIO_ReadTankSample`. The edit inserted the
+function before the first `DAC` section marker, which is inside `KM_GPIO_Init`, rather than before
+the file-scope ADC conversion routine. GCC accepted the nested function but it did not provide the
+external symbol used by `main.c`. The source was recompiled, so this was not the earlier stale-build
+problem. Moving the helper to file scope fixed the build. Match a unique function boundary and
+inspect surrounding braces before inserting a helper; keep the full firmware link check.

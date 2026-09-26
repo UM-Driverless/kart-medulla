@@ -70,6 +70,7 @@ static uint8_t rx_buffer[KM_COMS_MSG_MAX_LEN - 1]; //[0-255]
 static size_t rx_buffer_len = 0;
 static SemaphoreHandle_t km_coms_mutex;
 static uart_port_t km_coms_uart = UART_NUM_0;
+static TickType_t last_state_tick = 0;
 static TickType_t last_cmd_tick = 0;  // Tick of last received Orin command
 
 /******************************* DECLARACION FUNCIONES PRIVADAS ***************/
@@ -285,11 +286,6 @@ void KM_COMS_ProccessMsgs(void) {
 static void KM_COMS_ProccessPayload(km_coms_msg msg) {
     ESP_LOGI("KM_coms", "RX msg type=0x%02X len=%d crc=0x%02X", msg.type, msg.len, msg.crc);
 
-    // Update watchdog timestamp on any Orin→ESP32 message
-    if (msg.type >= 0x20 && msg.type <= 0x3F) {
-        last_cmd_tick = xTaskGetTickCount();
-    }
-
     int64_t object_value = 0;
 
     switch (msg.type)
@@ -319,12 +315,14 @@ static void KM_COMS_ProccessPayload(km_coms_msg msg) {
         break;
 
     case ORIN_MACHINE_STATE:
-        if (msg.len != 1) return; // 1 int32 element
+        if (msg.len != 1) return;
+        last_state_tick = xTaskGetTickCount(); // 1 int32 element
         object_value = (int64_t)msg.payload[0];
         KM_OBJ_SetObjectValue(MACHINE_STATE_ORIN, object_value);
         break;
 
     case ORIN_HEARTBEAT:
+        if (msg.len != 1) return;
         // Ns si guardarlo en la libreria de variables o reinicar algo. ns
         break;
 
@@ -346,6 +344,11 @@ static void KM_COMS_ProccessPayload(km_coms_msg msg) {
         KM_OBJ_SetObjectValue(COMPRESSOR_DISABLED, object_value);
         break;
 
+    case ORIN_SAFETY_RESET:
+        if (msg.len != 1 || msg.payload[0] <= 0) return;
+        KM_OBJ_SetObjectValue(SAFETY_RESET_TOKEN, msg.payload[0]);
+        break;
+
     case ORIN_STEER_PID:
         // 5 int32 elements: [override, kp x1000, ki x1000, kd x1000, pwm_limit x1000].
         // Stored raw and unvalidated on purpose — control_task clamps them to the
@@ -362,6 +365,7 @@ static void KM_COMS_ProccessPayload(km_coms_msg msg) {
 
     case ORIN_COMPLETE:
         if (msg.len != 6) return; // 6 int32 elements
+        last_state_tick = xTaskGetTickCount();
         object_value = (int64_t)msg.payload[0];
         KM_OBJ_SetObjectValue(TARGET_THROTTLE, object_value);
 
@@ -383,8 +387,12 @@ static void KM_COMS_ProccessPayload(km_coms_msg msg) {
     
     default:
         ESP_LOGE("KM_coms", "Type of msg incorrect. %d", msg.type);
-        break;
+        return;
     }
+    // Heartbeats and configuration cannot keep old actuator commands alive.
+    if (msg.type == ORIN_TARG_THROTTLE || msg.type == ORIN_TARG_BRAKING
+        || msg.type == ORIN_TARG_STEERING || msg.type == ORIN_COMPLETE)
+        last_cmd_tick = xTaskGetTickCount();
 }
 
 /**
@@ -433,3 +441,5 @@ TickType_t KM_COMS_GetLastCmdTick(void) {
 }
 
 /******************************* FIN DE ARCHIVO ********************************/
+
+TickType_t KM_COMS_GetLastStateTick(void) { return last_state_tick; }

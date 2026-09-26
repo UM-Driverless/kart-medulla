@@ -2561,3 +2561,41 @@ The old task-board claim that brake remained unwritten was also stale: `control_
 MCP4922 channel B on the S3. The remaining brake blocker is on the fabricated v1 board: U13.10 to
 U1.3 is unrouted and CN10.2 is connected to the unamplified DAC node. No Telegram record from the
 2026-07/08 workshop period shows that cut-and-jumper repair being completed.
+
+
+## 2026-09-26 — Centralized sensor safety and explicit reset
+
+Rubén requested implementation of a safety decision module separate from health reporting.
+`km_safety` now grants actuator and shutdown permission in the fast control loop, before telemetry
+writes. Missing required inputs inhibit startup without latching; steering feedback loss, invalid
+or low tank pressure, stale control/state messages, compressor disable and invalid modes latch
+once armed. Orin EMERGENCY is latched too. Remote bench steering omits steering/tank prerequisites
+but never permits propulsion or closes shutdown; stale communications/state or GPIO failure during
+bench steering latches rather than resuming after reconnection. Autonomous steering=None keeps
+steering unpowered while allowing throttle only in DRIVING with healthy required inputs.
+Manual mode restores the physical pedal only when no fault is latched.
+
+The tank driver samples ADC1 synchronously and rejects read errors, full-scale raw codes and
+readings at/above 2900 mV. Invalid tank telemetry uses -1 mV instead of a plausible number.
+Zero voltage still means empty tank or an indistinguishable disconnected sensor: both inhibit drive
+through low pressure. A plausible stuck analog reading remains undetectable by this generic check.
+The existing 6.5/6.0 bar arm/disarm hysteresis and 50 ms steering PWM freshness limit are retained.
+
+Protocol: ESP_SAFETY_STATUS 0x0F carries `[1, active_faults, latched_faults, flags, reset_ack_token,
+mission]` at up to 20 Hz from communications. A report is sent only after a new control-loop
+snapshot, so a stopped control loop does not produce falsely fresh status. Fault bits 0..8 and
+flag bits 0..3 are defined in `components/km_safety/km_safety.h`. ORIN_SAFETY_RESET 0x2C carries
+one positive increasing token, attempted once. It acknowledges only healthy inputs, OFF or
+EMERGENCY state, and zero throttle/steering targets; recovery alone cannot execute a rejected
+attempt. Reset clears the latch without authorizing immediate propulsion. Separate 1000 ms
+actuator-command and state-message freshness checks prevent heartbeat/configuration traffic
+from preserving stale driving authority. GPIO shutdown/mux write errors inhibit rather than
+calling an assertion that would reboot into floating steering pins.
+
+Verification: `~/.platformio/penv/bin/pio test -e native` passed 73 tests; after refining autonomous
+steering=None behavior, `pio test -e native -f test_km_safety` passed all 11 policy tests. Both
+`pio run -e esp32-s3-devkitc-1` and `pio run -e esp32dev` linked firmware, with changed source
+compilation visible. The first build caught a nested ADC-helper insertion, corrected as recorded
+in `.agents/error-log.md`. No flash or hardware safety claim: physical steering isolation is
+unconfirmed, and the shutdown-chain wire/braking still needs measurement. The task board retains
+hardware validation and an independent control-loop watchdog with hardware-safe steering inhibit.
