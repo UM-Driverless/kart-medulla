@@ -2740,3 +2740,20 @@ The visible UI applied exactly 24%, enabled Tank Bypass, and entered READY befor
 The mouse Stop returned READY, followed about 8 ms later by zero outgoing throttle. The guard did not need to publish Stop. The UI worker then disabled Tank Bypass and restored the actual applied setpoint to 0.0%; the observer confirmed AS_OFF, throttle/steering zero, safety `[1,4,0,17,0,8]` and unchanged Hall counters before the guard was canceled. The temporary observer log is `/tmp/kart-mouse-pilot-guard.jsonl` on the Orin. No 26–30% pilot ran in this attempt.
 
 This verifies the dashboard command and Stop transitions, not analog voltage at the motor controller, motor rotation or physical stopping. Higher levels were held while the electronic motor-controller key-enable/shutdown relay path and the operator's physical bypass arrangement were checked separately. Production firmware/runtime restoration remains required after bench work.
+
+
+## 2026-10-08 — Mouse-operated 26%, 28% and 30% sweep produced no Hall response
+
+Rubén clarified that the requested bypass was the red dashboard Tank Bypass button and explicitly requested the agent-operated mouse tests. The dashboard worker remained the sole Start/setpoint/bypass writer. A separate ROS observer supplied only a three-second Stop fallback and monitored safety, commands, Hall fields and pneumatic telemetry. Each setting was applied and acknowledged while stopped; the UI returned to READY/zero between separate pilots. No firmware reset, flash or serial-port operation occurred with physical Auto reported.
+
+| Applied electrical setting | AS_DRIVING interval (s) | Maximum outgoing throttle / 255 | Hall before / after | Last-edge age before / after (ms) | GPIO 18 shutdown readback during drive | Compressor commanded/readback duty during drive |
+| --- | --- | --- | --- | --- | --- | --- |
+| 26% | 3.010 | 66 | 40/39/38 → 40/39/38 | 706022 → 709057 | 1 | 255/255 |
+| 28% | 2.678 | 71 | 40/39/38 → 40/39/38 | 726207 → 729233 | 1 | 0/0 |
+| 30% | 2.673 | 76 | 40/39/38 → 40/39/38 | 768569 → 770584 | 1 | 255/255 |
+
+All three Hall deltas were 0/0/0. Bits remained 1, last interval remained 87428 microseconds and multiple-bit-change count remained zero. Steering commands stayed zero; safety stayed `[1,4,0,25,0,8]` with raw tank-low and no latch. The independent guard sent Stop at the three-second limit during the 26% pilot. The mouse Stop ended the 28% and 30% pilots before the fallback deadline. Each READY transition was followed by outgoing throttle zero within approximately 11–16 ms.
+
+After the final pilot, the dashboard worker disabled Tank Bypass and restored applied throttle to 0.0%. The observer confirmed AS_OFF, throttle/steering zero, shutdown GPIO readback 0, safety `[1,4,0,17,0,8]` and unchanged Hall counters before its Stop-only guard was canceled. Temporary Orin logs are `/tmp/kart-mouse-sweep-guard26.jsonl` (26% and 28%) and `/tmp/kart-mouse-sweep-guard30.jsonl` (30%). No level above the dedicated 30% ceiling was requested.
+
+GPIO 18 high verifies only the microcontroller pin readback, not closure of the physical shutdown relay contacts or the motor controller's two-wire key-enable loop. Outgoing throttle verifies only the digital command, not voltage at the controller input. All capped trials produced no Hall response; a physical analog-input/key-enable measurement is required to distinguish the downstream signal path from controller enable or threshold behavior. No constant motor rotation, physical stopping or speed calibration was validated. Production firmware/runtime restoration remains required after bench work.
