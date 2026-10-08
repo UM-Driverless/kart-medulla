@@ -2800,3 +2800,10 @@ successfully with `main/main.c` compilation visible. Existing legacy ADC/DAC
 and native integer-literal warnings remain. No board was flashed or reset and
 no runtime service was restarted. Installation and physical low-speed/stopping
 checks remain in the existing Hall task.
+
+Target preparation: firmware commit `c11423b` is pushed and pulled onto the Orin.
+Its bench-throttle image rebuilt successfully there in 19.19 s, including compilation
+of `main.c`. Brain commit `95f1144` is also pulled, and all three affected ROS packages
+built. No flash, reset, service restart or motion command was performed. Activation
+awaits confirmation that the steering motor is isolated; preserve the bench image
+while the currently opted-in bench runtime is installed.
