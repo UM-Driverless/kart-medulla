@@ -270,7 +270,7 @@ See [`AGENTS.md`](AGENTS.md) for detailed project documentation, error log, and 
 
 `pio run -e esp32-s3-bench-throttle` builds a separate image for an attended,
 elevated-wheel Hall test. It always inhibits steering and physical-pedal ownership,
-boots with electronic throttle zero, and caps the final throttle fraction at 0.05.
+boots with electronic throttle zero, and caps the final throttle fraction at 0.30.
 Only mission 8 with steering mode 1 can propel; ordinary state, command freshness,
 Stop, emergency and fault latches still apply. The image reports safety flag bit 4
 (mask 16). It retains the real tank-low fault in telemetry but excludes that one
@@ -281,7 +281,7 @@ The Orin must separately start its state-machine process with
 `KART_BENCH_THROTTLE=1`, select autonomous, steering None and constant blind throttle,
 and receive the matching firmware flag. A normal Orin process rejects the bench
 image; an opted-in process rejects a production image. The dashboard safety reason
-identifies the 5% bench cap and pressure override. Start is still required. Existing
+identifies the 30% electrical-output bench cap and pressure override. Start is still required. Existing
 READY behavior closes the shutdown chain before Start; pneumatic emergency braking
 is not established by this exception. Never use this image for driving. After the
 bench test, restore the ordinary `esp32-s3-devkitc-1` image and remove the Orin bench

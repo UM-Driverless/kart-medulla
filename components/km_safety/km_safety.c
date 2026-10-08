@@ -4,7 +4,7 @@
 float KM_SAFETY_ThrottleOutput(const km_safety_state *s, float requested)
 {
     if (!s->allow_throttle || !isfinite(requested) || requested < 0) return 0;
-    const float cap = (s->flags & KM_SAFETY_BENCH_THROTTLE) ? 0.05f : 1.0f;
+    const float cap = (s->flags & KM_SAFETY_BENCH_THROTTLE) ? 0.30f : 1.0f;
     return requested > cap ? cap : requested;
 }
 

@@ -177,7 +177,8 @@ void test_bench_throttle_policy_and_final_cap(void) {
     TEST_ASSERT_EQUAL(0,state.latched_faults);
     TEST_ASSERT_EQUAL_FLOAT(0,KM_SAFETY_ThrottleOutput(&state,0));
     TEST_ASSERT_FLOAT_WITHIN(.00001,.03,KM_SAFETY_ThrottleOutput(&state,.03));
-    TEST_ASSERT_FLOAT_WITHIN(.00001,.05,KM_SAFETY_ThrottleOutput(&state,1));
+    TEST_ASSERT_FLOAT_WITHIN(.00001,.30,KM_SAFETY_ThrottleOutput(&state,1));
+    TEST_ASSERT_FLOAT_WITHIN(.00001,.20,KM_SAFETY_ThrottleOutput(&state,.20));
     TEST_ASSERT_EQUAL_FLOAT(0,KM_SAFETY_ThrottleOutput(&state,NAN));
     TEST_ASSERT_EQUAL_FLOAT(0,KM_SAFETY_ThrottleOutput(&state,-1));
     in.as_state=3; update();
