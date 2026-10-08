@@ -916,7 +916,10 @@ void health_task(void *ctx) {
             steer_trip_age_s = (int32_t)(age_us / 1000000);
         }
 
-        int32_t payload[7 + KM_HALL_FIELDS] = {
+        // Append-only diagnostics. SPI success and pin readback do not prove analog
+        // voltage or downstream relay/controller operation. Existing fields stay put.
+        enum { DIAG_START = 7 + KM_HALL_FIELDS, DIAG_FIELDS = 6 };
+        int32_t payload[DIAG_START + DIAG_FIELDS] = {
             flags,
             (int32_t)agc,
             (int32_t)heap_kb,
@@ -926,7 +929,22 @@ void health_task(void *ctx) {
             steer_trip_age_s
         };
         KM_HALL_GetTelemetry(&payload[7]);
-        KM_COMS_SendMsg(ESP_HEALTH_STATUS, payload, 7 + KM_HALL_FIELDS);
+        uint32_t spi_ok = 0, spi_fail = 0;
+        uint16_t spi_last = 0;
+#ifdef CONFIG_IDF_TARGET_ESP32S3
+        KM_GPIO_McpStats(&spi_ok, &spi_fail, &spi_last);
+#endif
+        payload[DIAG_START] = (int32_t)spi_ok;
+        payload[DIAG_START + 1] = (int32_t)spi_fail;
+        payload[DIAG_START + 2] = (int32_t)spi_last;
+#ifdef PIN_SELECT_THROTTLE
+        payload[DIAG_START + 3] = gpio_get_level(PIN_SELECT_THROTTLE);
+#else
+        payload[DIAG_START + 3] = -1;
+#endif
+        payload[DIAG_START + 4] = c->throttle_act->lastDacError;
+        payload[DIAG_START + 5] = c->brake_act->lastDacError;
+        KM_COMS_SendMsg(ESP_HEALTH_STATUS, payload, DIAG_START + DIAG_FIELDS);
 
         // Echo the steering gains actually in force. This is the only thing that
         // tells the dashboard the truth: an ESP32 reset clears the override and

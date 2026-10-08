@@ -32,6 +32,7 @@ typedef int uart_port_t;
 #define UART_PIN_NO_CHANGE (-1)
 
 /* Recorded calls for assertions */
+extern esp_err_t fake_dac_result;
 extern uint8_t fake_dac_value[2];      /* [0]=channel A, [1]=channel B */
 extern uint8_t fake_pwm_duty;
 extern uint8_t fake_digital_pin19;     /* direction pin */
@@ -52,7 +53,7 @@ static inline uint16_t  KM_GPIO_ReadADC(gpio_num_t pin) { (void)pin; return 0; }
 static inline esp_err_t KM_GPIO_WriteDAC(gpio_num_t pin, uint8_t value) {
     if (pin == PIN_CMD_ACC) fake_dac_value[0] = value;        /* channel A (accel) */
     else if (pin == PIN_CMD_BRAKE) fake_dac_value[1] = value; /* channel B (brake) */
-    return ESP_OK;
+    return fake_dac_result;
 }
 
 static inline esp_err_t KM_GPIO_WritePWM(gpio_num_t pin, uint32_t duty) {

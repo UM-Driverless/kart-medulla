@@ -99,12 +99,19 @@ typedef enum
     ESP_HEARTBEAT           = 0x08, /**< ESP32 heartbeat message */
     ESP_COMPLETE            = 0x09, /**< Full telemetry message */
     ESP_DIAG_STEERING       = 0x0A, /**< AS5600 diagnostic registers (debug) */
-    ESP_HEALTH_STATUS       = 0x0B, /**< Periodic health, 1 Hz, 15 fields:
+    ESP_HEALTH_STATUS       = 0x0B, /**< Periodic health, 1 Hz, 21 fields:
                                          [flags, agc, heap_kb, i2c_errors, steer_frames,
                                           steer_rejects, steer_trip_age_s,
                                           hall_init_err, hall_bits, hall_edges_1, hall_edges_2,
                                           hall_edges_3, hall_age_ms, hall_interval_us,
-                                          hall_multi_changes]. Hall field semantics: km_hall.h.
+                                          hall_multi_changes, spi_ok, spi_fail, spi_last_word,
+                                          throttle_select_pin, throttle_last_dac_error,
+                                          brake_last_dac_error]. Hall field semantics: km_hall.h.
+                                         SPI counts cover both DAC channels; last word is the most
+                                         recent transaction, not necessarily throttle. Last-error
+                                         fields include Stop writes and may clear after a successful
+                                         retry. SPI success and selector pin readback do not verify
+                                         analog voltage or downstream controller enable.
                                          flags: bit0 magnet_ok, bit1 i2c_ok, bit2 heap_ok,
                                          bit3 steer_ok (read valid NOW), bit4 steer_trip (latched).
                                          steer_trip_age_s is seconds since the latch tripped, or -1

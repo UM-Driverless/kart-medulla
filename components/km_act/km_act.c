@@ -103,7 +103,7 @@ void KM_ACT_SetOutput(ACT_Controller *act, float value)
         {
             float v = clamp(value, 0.0f, act->outputLimit);
             // Depends on resolution of DAC
-            KM_GPIO_WriteDAC(act->dacChannel, (uint8_t)(v * 255)); // salida [0-255]
+            act->lastDacError = KM_GPIO_WriteDAC(act->dacChannel, (uint8_t)(v * 255)); // salida [0-255]
             break;
         }
 
@@ -143,7 +143,7 @@ void KM_ACT_Stop(ACT_Controller *act)
     {
         case ACT_ACCEL:
         case ACT_BRAKE:
-            KM_GPIO_WriteDAC(act->dacChannel, 0);
+            act->lastDacError = KM_GPIO_WriteDAC(act->dacChannel, 0);
             break;
 
         case ACT_STEER:

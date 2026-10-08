@@ -55,6 +55,7 @@ typedef struct {
 
     float outputLimit;
     uint32_t lastOutput;
+    esp_err_t lastDacError; /* Last DAC transaction result, including zero/Stop writes. */
 } ACT_Controller;
 
 /*=========================== API PÚBLICA ==================================*/

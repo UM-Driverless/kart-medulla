@@ -8,6 +8,7 @@
 #include <math.h>
 
 /* Fake GPIO state — written by KM_GPIO stubs in km_gpio.h fake */
+int32_t fake_dac_result = 0;
 uint8_t fake_dac_value[2] = {0, 0};
 uint8_t fake_pwm_duty = 0;
 uint8_t fake_digital_pin19 = 0;
@@ -18,6 +19,7 @@ uint8_t fake_digital_pin19 = 0;
 /* ── Helpers ─────────────────────────────────────────────────────────── */
 
 static void reset_fakes(void) {
+    fake_dac_result = ESP_OK;
     fake_dac_value[0] = 0;
     fake_dac_value[1] = 0;
     fake_pwm_duty = 0;
@@ -174,10 +176,27 @@ void test_null_pointer_safe(void) {
     KM_ACT_Stop(NULL);
 }
 
+void test_dac_error_is_retained_per_actuator_and_stop_is_checked(void) {
+    reset_fakes();
+    ACT_Controller accel=KM_ACT_Init(ACT_ACCEL,1);
+    ACT_Controller brake=KM_ACT_Init(ACT_BRAKE,1);
+    TEST_ASSERT_EQUAL(ESP_OK,accel.lastDacError);
+    fake_dac_result=ESP_FAIL; KM_ACT_SetOutput(&accel,.3f);
+    TEST_ASSERT_EQUAL(ESP_FAIL,accel.lastDacError);
+    fake_dac_result=ESP_OK; KM_ACT_SetOutput(&brake,0);
+    TEST_ASSERT_EQUAL(ESP_FAIL,accel.lastDacError);
+    TEST_ASSERT_EQUAL(ESP_OK,brake.lastDacError);
+    fake_dac_result=ESP_ERR_INVALID_ARG; KM_ACT_Stop(&accel);
+    TEST_ASSERT_EQUAL(ESP_ERR_INVALID_ARG,accel.lastDacError);
+    fake_dac_result=ESP_OK; KM_ACT_Stop(&accel);
+    TEST_ASSERT_EQUAL(ESP_OK,accel.lastDacError);
+}
+
 /* ── Runner ──────────────────────────────────────────────────────────── */
 
 int main(void) {
     UNITY_BEGIN();
+    RUN_TEST(test_dac_error_is_retained_per_actuator_and_stop_is_checked);
     RUN_TEST(test_init_accel);
     RUN_TEST(test_init_brake);
     RUN_TEST(test_init_steer);
