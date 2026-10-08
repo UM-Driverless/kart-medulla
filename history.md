@@ -2807,3 +2807,19 @@ of `main.c`. Brain commit `95f1144` is also pulled, and all three affected ROS p
 built. No flash, reset, service restart or motion command was performed. Activation
 awaits confirmation that the steering motor is isolated; preserve the bench image
 while the currently opted-in bench runtime is installed.
+
+
+## 2026-10-08 — Hall telemetry flashed and live cadence verified
+
+Rubén confirmed the physical switch was in Manual and explicitly authorized flashing.
+Stopped `kart-brain`, confirmed `/dev/ttyACM0` was free, and uploaded the updated
+`esp32-s3-bench-throttle` image from firmware source `c11423b`; esptool verified the
+flash hashes and reported success. Restarted the existing bench-opted-in service.
+No motion command was sent. Live `/esp32/hall` measured 19.998 Hz with 49–51 ms
+intervals, and `/esp32/steering` measured about 100 Hz. Safety telemetry was
+[1,4,0,16,0,0]: AS_OFF, tank-low raw fault, no latched fault, bench-image flag set,
+and zero GPIO init error. The authenticated loopback dashboard snapshot reported
+motor_halls, capture initialization success, bits 3, counters [0,0,0], no interval
+yet and warming_up. This verifies fast telemetry reaches the running dashboard;
+physical rolling, calibrated magnitude, stop expiry and control-loop cadence still
+need a hardware check. The service is active. No protected-branch merge was made.
