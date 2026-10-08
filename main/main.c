@@ -24,6 +24,7 @@
 // Librerias propias
 #include "km_act.h"
 #include "km_coms.h"
+#include "km_telemetry.h"
 #include "km_gamc.h"
 #include "km_pid.h"
 #include "km_rtos.h"
@@ -374,10 +375,10 @@ static float steering_read_rad(sensor_struct *sdir, int32_t *out_raw)
 void comms_task(void *ctx) {
     km_coms_ReceiveMsg();
     KM_COMS_ProccessMsgs();
-    static TickType_t last_report = 0;
+    static uint32_t last_report = 0;
     static uint32_t sent_generation = 0;
     TickType_t now = xTaskGetTickCount();
-    if ((now - last_report) >= pdMS_TO_TICKS(50)) {
+    if (km_telemetry_due(now, &last_report, pdMS_TO_TICKS(50))) {
         int32_t payload[6];
         portENTER_CRITICAL(&safety_mux);
         uint32_t generation = safety_report_generation;
@@ -387,7 +388,11 @@ void comms_task(void *ctx) {
             KM_COMS_SendMsg(ESP_SAFETY_STATUS, payload, 6);
             sent_generation = generation;
         }
-        last_report = now;
+        // Hall capture runs in interrupts; sending never resets its timestamps.
+        // Publish even without edges and independently of safety generation.
+        int32_t halls[KM_HALL_FIELDS];
+        KM_HALL_GetTelemetry(halls);
+        KM_COMS_SendMsg(ESP_HALL_STATUS, halls, KM_HALL_FIELDS);
     }
 }
 
@@ -608,7 +613,11 @@ void control_task(void *ctx) {
     safety_report[5] = mission;
     ++safety_report_generation;
     portEXIT_CRITICAL(&safety_mux);
-    KM_COMS_SendMsg(ESP_ACT_STEERING, fb, 4);
+    // Feedback at 100 Hz leaves UART capacity for 20 Hz Hall/safety reporting.
+    // Sensor reads, control and safety decisions still run on every 2 ms cycle.
+    static uint32_t last_steering_report = 0;
+    if (km_telemetry_due(now, &last_steering_report, pdMS_TO_TICKS(10)))
+        KM_COMS_SendMsg(ESP_ACT_STEERING, fb, 4);
 
     static bool compressor_demand = false;
     if (compressor_disabled || tank_pegged) {
@@ -698,8 +707,7 @@ void control_task(void *ctx) {
 #endif
 
     // --- Pneumatics telemetry → Orin (throttled) ---
-    // Capped at ~20 Hz: the steering frame already uses most of the 115200 UART
-    // budget, so sending a second frame every cycle would overflow it. Pressure
+    // Capped at ~20 Hz to keep the combined telemetry within the UART budget. Pressure
     // moves over seconds, so 20 Hz is plenty for the dashboard.
     //
     // Throttled on ELAPSED TIME, not on a cycle count. A /25 divider only means
@@ -1114,10 +1122,10 @@ void system_init(void) {
     // KM_COMS_CreateTask args: (name, fn, ctx, period_ms, stackWords, priority, active)
     //                                          ^^^^^^^^^ period is in MILLISECONDS, not Hz.
     //   comms:     10 ms  →  100 Hz target
-    //   control:    2 ms  →  500 Hz, measured on the kart (control_iters). The rate cap is
-    //              the UART, not the sensor: the per-cycle steering frame uses ~87% of the
-    //              115200-baud link and TX is unbuffered (see tasks.md). The old AS5600 I2C
-    //              stall is gone — the S3 reads the MT6701 via non-blocking MCPWM capture.
+    //   control:    2 ms  →  500 Hz target; steering feedback is capped at 100 Hz.
+    //              Combined telemetry uses 40.625% of nominal UART bandwidth.
+    //              Measure control_iters after flashing; UART TX still blocks.
+    //              The S3 reads the MT6701 via non-blocking MCPWM capture.
     //   heartbeat: 1000 ms →    1 Hz
     RTOS_Task t1 = KM_COMS_CreateTask("comms", comms_task, NULL, 10, 4096, 2, 1);
     RTOS_Task t2 = KM_COMS_CreateTask("control", control_task, &ctrl_ctx, 2, 4096, 1, 1);

@@ -22,6 +22,15 @@ No changes can mean standstill, a disconnected sensor or a stuck signal.
 
 ## Telemetry
 
+`ESP_HALL_STATUS` (0x10) sends the same eight raw fields below at a target
+50 ms period (20 Hz), starting with initialization error at field 0. The
+communications task sends snapshots even while stationary. Interrupt capture
+retains its own timestamps: sending a frame never resets the edge interval.
+The interval remains the time between the latest two observed changes; age
+continues increasing until the next change. Speed consumers can repeat the
+period-derived estimate between changes and expire it when edges become overdue.
+Scheduling may slip with task/UART latency; it does not burst missed reports.
+
 The existing `ESP_HEALTH_STATUS` frame (0x0B, 1 Hz) preserves fields 0–6 and
 appends the following. Each field occupies a big-endian 32-bit integer.
 
@@ -48,10 +57,26 @@ pulses, so noise can also increase counts. The handler runs from instruction RAM
 if another component has already installed the GPIO interrupt service, that
 service's allocation flags determine whether it remains enabled during flash work.
 
-Appending eight fields adds 32 bytes per second (320 bit/s with serial framing).
-The kart-brain receiver forwards trailing health fields. Its `dev` dashboard
-implementation (`6680bce`) displays the raw Hall values and derives speed when
-calibrated; on-kart validation remains pending. No new message identifier is used.
+The 1 Hz health Hall tail remains unchanged for existing consumers. The
+standalone Hall frame is 36 bytes, adding 7200 bit/s at 20 Hz with one start bit, eight data bits and one stop bit per byte. Steering feedback is capped at 100 Hz while the control and safety
+loop retains its 2 ms target. The nominal outbound budget at 115200 baud is:
+
+| Frame | Bytes/frame | Rate | Bit/s, including serial framing |
+|---|---:|---:|---:|
+| Steering | 20 | 100 Hz | 20000 |
+| Hall | 36 | 20 Hz | 7200 |
+| Safety | 28 | up to 20 Hz | 5600 |
+| Pneumatic | 44 | 20 Hz | 8800 |
+| Pedals | 20 | 20 Hz | 4000 |
+| Health | 88 | 1 Hz | 880 |
+| PID | 24 | 1 Hz | 240 |
+| Heartbeat | 8 | 1 Hz | 80 |
+| **Total** | | | **46800 (40.625% of 115200)** |
+
+Before limiting steering feedback, the existing target-rate outbound traffic
+already required 119600 bit/s; adding Hall would require 126800 bit/s. These
+are calculated budgets, not measured timing guarantees. UART transmission is
+blocking, so on-kart report cadence and control-loop rate still need checking.
 See [speed calculation, calibration and limitations](https://um-driverless.github.io/kart-docs/assembly/electronics/kart-medulla/firmware/#motor-hall-speed)
 for the end-to-end explanation.
 
@@ -72,7 +97,7 @@ for the end-to-end explanation.
    and sends no commands. Use the actual port name on another machine.
 4. Check capture reports no initialization error. At rest, counts should stay
    steady. Turn the motor slowly by hand: all three states should toggle and all
-   three counts should increase. The 1 Hz display is too slow to show every state;
+   three counts should increase. The 20 Hz display is too slow to show every state at higher speeds;
    stop between transitions to inspect individual states.
 5. Record before/after counts for one marked mechanical motor revolution in each
    direction. Check repeatability and investigate multi-bit changes or a channel

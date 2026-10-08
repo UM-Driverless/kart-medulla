@@ -135,6 +135,11 @@ typedef enum
                                          min/max constants in main.c — trust the mV fields until
                                          those are calibrated on the kart. */
 
+    ESP_HALL_STATUS         = 0x10, /**< 20 Hz raw Hall snapshot, 8 fields:
+                                         [init_err, bits, edges_h1, edges_h2, edges_h3,
+                                          age_ms, interval_us, multi_changes]. See km_hall.h.
+                                         Reporting does not reset capture or timing. */
+
     // ==========================
     // Orin --> ESP32 (0x20 - 0x3F)
     // ==========================

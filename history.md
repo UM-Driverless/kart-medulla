@@ -2768,3 +2768,35 @@ Health telemetry now appends six fields after the unchanged 15-field prefix: cum
 This patch is diagnostic only. Safety propagation was deliberately omitted after review found that a failed Stop could be followed by a successful zero write in the same control cycle, hiding the failure from a next-cycle last-result check. Existing safety permission and latch rules remain unchanged. All 78 native tests passed, including a new per-actuator error/Stop/recovery test, and the dedicated S3 bench image compiled. The extended health frame remains compatible with the Brain decoder, independently checked with old and extended payloads. No flash, reset, serial opening or hardware command accompanied this preparation. Installation remains blocked until physical steering isolation is confirmed for flashing.
 
 A later read-only observation reported mission 7, AS_EMERGENCY, safety `[1,4,132,18,0,7]`, zero outgoing throttle/steering and shutdown GPIO 18 low. Hall counters were 1066/1064/1064; their increase occurred outside the observed bounded pilots and its source is unknown. No reset or mode change was issued by the diagnostic worker.
+
+
+## 2026-10-08 — Publish Hall snapshots every 50 ms without resetting capture
+
+Hall transitions were already timestamped in interrupts, but raw snapshots only
+reached the Orin in the 1 Hz health frame. The approved speed approach uses the
+interval between the latest two Hall changes and holds that measurement between
+changes; message timing does not define the measurement window.
+
+`ESP_HALL_STATUS` (0x10) now sends the existing eight-field Hall snapshot at a
+50 ms target period from the communications task, independently of safety-report
+generation. The 1 Hz health tail is unchanged. `tools/monitor_halls.py` accepts
+both message types. Hall interrupt capture and timing were left unchanged.
+
+The existing target telemetry already exceeded the 115200-baud transmit capacity:
+500 Hz steering plus the other frames require 119600 bit/s including serial
+framing. Adding 20 Hz Hall would require 126800 bit/s. Steering feedback is now
+limited to 100 Hz, while sensor acquisition, safety decisions and actuator
+control retain the 2 ms target. Combined nominal outbound traffic is 46800 bit/s
+(40.625% of 115200); the per-frame calculation is in `docs/motor-halls.md`.
+Delayed reports skip missed slots rather than sending a catch-up burst. Actual
+cadence and control-loop rate still require measurement on hardware because
+UART transmission blocks.
+
+Verification: `~/.platformio/penv/bin/pio test -e native` passed 80/80 cases,
+including Hall wire payload and timer-wrap/delayed-scheduling tests.
+`python3 -m unittest discover -s test -p 'test_monitor_halls.py'` passed 5/5.
+Production ESP32-S3, classic ESP32 and elevated-wheel bench firmware all linked
+successfully with `main/main.c` compilation visible. Existing legacy ADC/DAC
+and native integer-literal warnings remain. No board was flashed or reset and
+no runtime service was restarted. Installation and physical low-speed/stopping
+checks remain in the existing Hall task.

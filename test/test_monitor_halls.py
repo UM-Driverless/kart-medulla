@@ -30,6 +30,13 @@ class HallMonitorTests(unittest.TestCase):
         self.assertIn("H1/H2/H3=1/0/1", text)
         self.assertIn("4294967295/2/3", text)
 
+    def test_dedicated_hall_frame(self):
+        fields = [0, 5, -1, 2, 3, 181, 231000, 0]
+        decoded = list(monitor.frames(bytearray(frame(fields, 0x10))))
+        self.assertEqual(decoded, [(0x10, tuple(fields))])
+        self.assertEqual(monitor.describe(fields, 0x10), monitor.describe([0] * 7 + fields))
+        self.assertIn("Invalid", monitor.describe(fields[:-1], 0x10))
+
     def test_bad_crc_and_bad_length_recover(self):
         bad = bytearray(frame([0] * 15))
         bad[-1] ^= 1

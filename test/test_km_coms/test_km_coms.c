@@ -23,6 +23,7 @@ size_t   fake_uart_rx_pos = 0;
 
 /* km_coms source */
 #include "km_coms.h"
+#include "km_telemetry.h"
 #include "km_coms.c"
 
 /* ── Helpers ─────────────────────────────────────────────────────────── */
@@ -294,8 +295,43 @@ void test_state_watchdog_is_independent(void) {
     KM_COMS_ProccessPayload(msg); TEST_ASSERT_EQUAL(0,last_state_tick);
 }
 
+void test_hall_frame_keeps_raw_unsigned_counts_and_interval(void) {
+    reset_uart();
+    int32_t fields[8] = {0, 5, -1, 2, 3, 181, 231000, 0};
+    TEST_ASSERT_EQUAL(1, KM_COMS_SendMsg(ESP_HALL_STATUS, fields, 8));
+    TEST_ASSERT_EQUAL(36, fake_uart_tx_len);
+    TEST_ASSERT_EQUAL_HEX8(0x10, fake_uart_tx_buf[2]);
+    for (unsigned i = 0; i < 8; ++i) {
+        unsigned offset = 3 + 4 * i;
+        uint32_t decoded = ((uint32_t)fake_uart_tx_buf[offset] << 24)
+                         | ((uint32_t)fake_uart_tx_buf[offset + 1] << 16)
+                         | ((uint32_t)fake_uart_tx_buf[offset + 2] << 8)
+                         | fake_uart_tx_buf[offset + 3];
+        TEST_ASSERT_EQUAL_UINT32((uint32_t)fields[i], decoded);
+    }
+    TEST_ASSERT_EQUAL_UINT8(KM_COMS_crc8(32, ESP_HALL_STATUS, fake_uart_tx_buf + 3),
+                           fake_uart_tx_buf[35]);
+}
+
+void test_telemetry_schedule_period_delay_and_wrap(void) {
+    uint32_t last = 0;
+    TEST_ASSERT_FALSE(km_telemetry_due(49, &last, 50));
+    TEST_ASSERT_TRUE(km_telemetry_due(50, &last, 50));
+    TEST_ASSERT_FALSE(km_telemetry_due(99, &last, 50));
+    TEST_ASSERT_TRUE(km_telemetry_due(100, &last, 50));
+    TEST_ASSERT_TRUE(km_telemetry_due(271, &last, 50));
+    TEST_ASSERT_FALSE(km_telemetry_due(271, &last, 50));
+    TEST_ASSERT_FALSE(km_telemetry_due(320, &last, 50));
+    TEST_ASSERT_TRUE(km_telemetry_due(321, &last, 50));
+    last = UINT32_MAX - 20;
+    TEST_ASSERT_FALSE(km_telemetry_due(28, &last, 50));
+    TEST_ASSERT_TRUE(km_telemetry_due(29, &last, 50));
+}
+
 int main(void) {
     UNITY_BEGIN();
+    RUN_TEST(test_hall_frame_keeps_raw_unsigned_counts_and_interval);
+    RUN_TEST(test_telemetry_schedule_period_delay_and_wrap);
     RUN_TEST(test_safety_reset_requires_positive_single_token);
     RUN_TEST(test_only_valid_actuator_frames_refresh_command_watchdog);
     RUN_TEST(test_state_watchdog_is_independent);

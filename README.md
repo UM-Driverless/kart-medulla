@@ -36,7 +36,7 @@ and neither is reflected by the hash alone, because rework exists on a physical 
 * **Throttle/Brake:** DAC analog outputs
 * **Comms to Orin:** UART0 binary protocol (int32 encoding, 115200 baud)
 * **Motor Hall inputs:** GPIO 16/47/21 through U5; interrupt-driven raw states and
-  counts in health telemetry. [Protocol and bench check](docs/motor-halls.md);
+  counts in 20 Hz Hall telemetry and the compatible 1 Hz health tail. [Protocol and bench check](docs/motor-halls.md);
   [dashboard speed calculation and calibration](https://um-driverless.github.io/kart-docs/assembly/electronics/kart-medulla/firmware/#motor-hall-speed).
 
 ## Pin Configuration
@@ -179,13 +179,15 @@ Registered in `system_init()` at the bottom of `main/main.c`. The period argumen
 | Task | Period → rate | Stack | Priority | Description |
 |---|---|---|---|---|
 | comms | 10 ms → 100 Hz | 4096 B | 2 | Receives/processes UART frames from the Orin, sends telemetry |
-| control | 2 ms → 500 Hz | 4096 B | 1 | Reads the MT6701 steering angle, runs the PID, drives the actuators, decides the shutdown circuit, sends steering feedback |
+| control | 2 ms → 500 Hz | 4096 B | 1 | Reads the MT6701 steering angle, runs the PID, drives the actuators, decides the shutdown circuit, sends steering feedback at 100 Hz |
 | heartbeat | 1000 ms → 1 Hz | 2048 B | 1 | Sends uptime to the Orin |
 | health | 1 Hz | 4096 B | 1 | Monitors sensor/I2C/heap and reports to the Orin. Started with its own `xTaskCreate`, not through the `KM_RTOS` periodic wrapper |
 
-500 Hz is the measured control rate on the kart, not just the target — the MT6701 is read through
-non-blocking MCPWM capture, so there is no blocking sensor call in the loop. What caps the rate is
-the UART: the per-cycle steering frame uses about 87 % of the 115200-baud link and TX is unbuffered.
+The control loop retains its 500 Hz target and reads the MT6701 through non-blocking MCPWM
+capture. Steering feedback is limited to 100 Hz so the added 20 Hz Hall snapshots fit the
+115200-baud link. The full nominal outbound telemetry budget is 46800 bit/s (40.625%);
+[the calculation and Hall protocol](docs/motor-halls.md) are documented together. UART sends
+still block, so cadence and control-loop rate must be checked on the kart after flashing.
 
 ## Steering Control
 

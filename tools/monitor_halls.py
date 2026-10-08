@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Read Hall diagnostics from binary health frames; never send motor commands.
+"""Read Hall diagnostics from binary Hall or health frames; never send motor commands.
 
 Usage: python3 tools/monitor_halls.py /dev/ttyACM0
 Requires pyserial. Stop other users of the serial port before opening it.
@@ -42,10 +42,12 @@ def frames(buffer):
         yield kind, payload
 
 
-def describe(payload):
-    if len(payload) < 15:
+def describe(payload, kind=0x0B):
+    if kind == 0x10 and len(payload) != 8:
+        return "Invalid Hall telemetry length"
+    if kind == 0x0B and len(payload) < 15:
         return "Health received; firmware has no Hall diagnostics."
-    status, bits, h1, h2, h3, age, interval, multi = payload[7:15]
+    status, bits, h1, h2, h3, age, interval, multi = (payload if kind == 0x10 else payload[7:15])
     if status:
         return f"Hall capture unavailable: initialization error {status:#x}"
     if not 0 <= bits <= 7 or age < -1 or interval < -1:
@@ -79,8 +81,8 @@ def main():
                 continue
             buffer.extend(data)
             for kind, payload in frames(buffer):
-                if kind == 0x0B:
-                    print(describe(payload), flush=True)
+                if kind in (0x0B, 0x10):
+                    print(describe(payload, kind), flush=True)
 
 
 if __name__ == "__main__":
