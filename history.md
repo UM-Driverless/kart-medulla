@@ -2615,3 +2615,25 @@ checks only; the existing hardware validation gate remains open.
 Verification after the frame-order correction: the full native suite passed 74 tests (12 safety
 policy tests); ESP32-S3 and classic builds both recompiled the changed sources and linked. No
 hardware flash was performed.
+
+
+### 2026-10-08 — Hall validation preparation and interrupt architecture
+
+Rubén requested a slow, sustained propulsion test to validate the motor Hall inputs and an
+explanation of interrupt handling versus FreeRTOS tasks. Two read-only subagents traced Hall
+capture and constant-throttle control. Current firmware counts observed rising and falling
+changes inside the GPIO interrupt handler; the health task copies a protected snapshot and
+reports it once per second. No per-edge task wakeup is used. The three native Hall accumulator
+tests passed with `pio test -e native -f test_km_hall`. This does not validate input electronics.
+
+The local kart-brain source already has `constant_throttle_blind` in
+`src/kart_control/scripts/cone_follower_node.py`: it retains fixed throttle when detections are
+empty or stale. Its launch currently excludes that node with `perception:=false`, an existing
+kart-brain task. Propulsion on kart-medulla uses the external throttle DAC, not direct steering
+PWM. Fixed throttle does not guarantee fixed vehicle speed. Actual bench connections, current
+deployed images, and hardware behavior were not checked; no flash or motion was commanded.
+
+The Hall task entry incorrectly said the dashboard could not display Hall fields. Local
+kart-brain `src/kb_dashboard/kb_dashboard/hall_speed.py`, `protocol.py` and `index.html` now contain
+Hall parsing, display and calibrated speed estimation. The task wording was updated without
+marking hardware validation complete.

@@ -49,8 +49,8 @@ finished, pushed and still sit here awaiting that confirmation; several do.
   Still verify all three channels with the motor connected and turned by hand; this bare-board
   test does not validate U5 or the Hall wiring.
   For speed/direction, establish the Hall sequence and transitions per mechanical revolution
-  before implementing calibrated conversion. Dashboard presentation remains a follow-up;
-  the existing Orin receiver forwards the fields but does not display them. Verify the
+  before validating calibrated conversion. The local kart-brain dashboard now implements raw
+  Hall display and calibrated speed estimation; deployment and physical validation remain unchecked. Verify the
   sensor-side pull-ups if the motor outputs are open-collector: the v1 schematic has only series
   resistors at U5's inputs. Investigation and sources: `history.md`, 2026-09-19.
 
