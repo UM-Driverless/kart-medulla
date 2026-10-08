@@ -49,6 +49,7 @@ finished, pushed and still sit here awaiting that confirmation; several do.
   `docs/motor-halls.md`. Flashed `f4ac188` from the Mac on 2026-09-19 with only USB connected;
   eight health frames confirmed capture initialization succeeded, states 0/0/0 and no edges.
   **2026-10-08:** After flashing `a7386fb`, live Hall initialization returned 0 and all three accumulated counters reached 79; a later six-second stationary window held 80/79/79 with zero multiple-bit changes. The source of the earlier rotation is awaiting operator confirmation. This establishes input transitions but does not yet validate commanded movement, Stop, sequence or speed calibration; see `history.md`.
+  **2026-10-08 mouse pilot:** With the revised bench image installed and physical Auto reported, exact 24% produced AS_DRIVING for 3.898 seconds at outgoing code 61/255, but Hall counters stayed 40/39/38 (delta 0/0/0). Mouse Stop returned READY/zero; bypass OFF and applied 0.0% then returned AS_OFF/zero. Higher levels were held pending the controller key-enable/shutdown path check. Actual analog output and commanded rotation remain unverified; see `history.md`.
   Still verify the source of rotation and the channel sequence with the connected motor.
   For speed/direction, establish the Hall sequence and transitions per mechanical revolution
   before validating calibrated conversion. The local kart-brain dashboard now implements raw
