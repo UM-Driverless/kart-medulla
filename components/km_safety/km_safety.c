@@ -1,4 +1,12 @@
 #include "km_safety.h"
+#include <math.h>
+
+float KM_SAFETY_ThrottleOutput(const km_safety_state *s, float requested)
+{
+    if (!s->allow_throttle || !isfinite(requested) || requested < 0) return 0;
+    const float cap = (s->flags & KM_SAFETY_BENCH_THROTTLE) ? 0.05f : 1.0f;
+    return requested > cap ? cap : requested;
+}
 
 void KM_SAFETY_Update(km_safety_state *s, const km_safety_inputs *i)
 {
@@ -22,6 +30,10 @@ void KM_SAFETY_Update(km_safety_state *s, const km_safety_inputs *i)
     if (i->compressor_disabled) drive_faults |= KM_SAFETY_COMPRESSOR_DISABLED;
     if (!valid_mode) drive_faults |= KM_SAFETY_INVALID_MODE;
     s->active_faults = drive_faults;
+    const bool bench_throttle = i->bench_throttle_build
+        && i->mission == 8 && i->steering_mode == 1;
+    const uint32_t blocking_faults = bench_throttle
+        ? drive_faults & ~KM_SAFETY_TANK_LOW : drive_faults;
 
     /* Bench steering cannot propel the kart or close the shutdown chain. Its
      * missing sensors remain visible as active faults, but do not trip a drive
@@ -29,7 +41,7 @@ void KM_SAFETY_Update(km_safety_state *s, const km_safety_inputs *i)
     const bool arm_requested = !manual && !bench && !emergency
         && ((!remote && (i->as_state == 1 || i->as_state == 2))
             || (remote && i->as_state == 0 && i->steering_mode == 0));
-    if (s->was_armed && drive_faults) s->latched_faults |= drive_faults;
+    if (s->was_armed && blocking_faults) s->latched_faults |= blocking_faults;
     if ((s->flags & KM_SAFETY_BENCH) && s->allow_steering)
         s->latched_faults |= drive_faults & (KM_SAFETY_COMMAND_STALE
             | KM_SAFETY_STATE_STALE | KM_SAFETY_INVALID_MODE | KM_SAFETY_HARDWARE_IO);
@@ -51,17 +63,23 @@ void KM_SAFETY_Update(km_safety_state *s, const km_safety_inputs *i)
         }
     }
 
-    const bool healthy = !drive_faults && !s->latched_faults;
+    const bool healthy = !blocking_faults && !s->latched_faults;
     const bool armed = arm_requested && healthy && !s->reset_hold;
     s->close_shutdown = armed;
     s->allow_manual_pedal = manual && i->as_state == 0 && !s->latched_faults;
-    s->allow_throttle = armed && (i->as_state == 2 || remote);
+    s->allow_throttle = armed && (i->as_state == 2 || remote)
+        && (!i->bench_throttle_build || bench_throttle);
     s->allow_steering = (s->allow_throttle && i->steering_mode == 0)
         || (bench && valid_mode && i->hardware_ok && i->commands_fresh && i->state_fresh
             && !s->latched_faults && !s->reset_hold);
+    if (i->bench_throttle_build) {
+        s->allow_steering = false;
+        s->allow_manual_pedal = false;
+    }
     s->was_armed = armed;
     s->flags = (healthy ? KM_SAFETY_READY : 0)
         | (s->latched_faults ? KM_SAFETY_EMERGENCY : 0)
         | (bench ? KM_SAFETY_BENCH : 0)
-        | (armed ? KM_SAFETY_ARMED : 0);
+        | (armed ? KM_SAFETY_ARMED : 0)
+        | (i->bench_throttle_build ? KM_SAFETY_BENCH_THROTTLE : 0);
 }

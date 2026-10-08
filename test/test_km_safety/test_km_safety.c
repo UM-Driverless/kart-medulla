@@ -1,4 +1,5 @@
 #include <unity.h>
+#include <math.h>
 #include "km_safety.h"
 #include "km_safety.c"
 
@@ -163,8 +164,53 @@ void test_invalid_modes_fail_closed(void) {
         TEST_ASSERT_FALSE(state.allow_steering);
     }
 }
+void test_bench_throttle_policy_and_final_cap(void) {
+    in.bench_throttle_build=true; in.tank_pressure_ok=false; update();
+    TEST_ASSERT_EQUAL(KM_SAFETY_TANK_LOW,state.active_faults);
+    TEST_ASSERT_TRUE(state.flags & KM_SAFETY_BENCH_THROTTLE);
+    TEST_ASSERT_FALSE(state.allow_throttle);
+    TEST_ASSERT_FALSE(state.allow_steering);
+    in.as_state=1; update();
+    TEST_ASSERT_FALSE(state.allow_throttle);
+    in.as_state=2; update();
+    TEST_ASSERT_TRUE(state.allow_throttle);
+    TEST_ASSERT_EQUAL(0,state.latched_faults);
+    TEST_ASSERT_EQUAL_FLOAT(0,KM_SAFETY_ThrottleOutput(&state,0));
+    TEST_ASSERT_FLOAT_WITHIN(.00001,.03,KM_SAFETY_ThrottleOutput(&state,.03));
+    TEST_ASSERT_FLOAT_WITHIN(.00001,.05,KM_SAFETY_ThrottleOutput(&state,1));
+    TEST_ASSERT_EQUAL_FLOAT(0,KM_SAFETY_ThrottleOutput(&state,NAN));
+    TEST_ASSERT_EQUAL_FLOAT(0,KM_SAFETY_ThrottleOutput(&state,-1));
+    in.as_state=3; update();
+    TEST_ASSERT_EQUAL_FLOAT(0,KM_SAFETY_ThrottleOutput(&state,1));
+    in.as_state=4; update();
+    TEST_ASSERT_FALSE(state.allow_throttle);
+    TEST_ASSERT_TRUE(state.latched_faults & KM_SAFETY_ORIN_EMERGENCY);
+}
+void test_bench_throttle_rejects_other_faults_and_modes(void) {
+    for (int fault=0;fault<8;fault++) {
+        setUp(); in.bench_throttle_build=true; in.tank_pressure_ok=false;
+        in.as_state=2; update(); TEST_ASSERT_TRUE(state.allow_throttle);
+        switch(fault) {
+        case 0: in.steering_valid=false; break;
+        case 1: in.tank_valid=false; break;
+        case 2: in.commands_fresh=false; break;
+        case 3: in.state_fresh=false; break;
+        case 4: in.compressor_disabled=true; break;
+        case 5: in.hardware_ok=false; break;
+        case 6: in.steering_mode=0; break;
+        case 7: in.mission=7; break;
+        }
+        update(); TEST_ASSERT_FALSE(state.allow_throttle);
+        TEST_ASSERT_FALSE(state.allow_steering);
+        TEST_ASSERT_EQUAL_FLOAT(0,KM_SAFETY_ThrottleOutput(&state,1));
+    }
+    setUp(); in.bench_throttle_build=true; in.mission=0; update();
+    TEST_ASSERT_FALSE(state.allow_manual_pedal);
+}
 int main(void) {
     UNITY_BEGIN();
+    RUN_TEST(test_bench_throttle_policy_and_final_cap);
+    RUN_TEST(test_bench_throttle_rejects_other_faults_and_modes);
     RUN_TEST(test_startup_missing_sensor_inhibits_without_latch);
     RUN_TEST(test_loss_while_ready_latches_and_return_does_not_restart);
     RUN_TEST(test_every_drive_fault_stops_and_latches);

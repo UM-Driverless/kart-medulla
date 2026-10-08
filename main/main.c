@@ -35,6 +35,13 @@
 #include "km_objects.h"
 #include "km_safety.h"
 
+#ifndef KM_BENCH_THROTTLE
+#define KM_BENCH_THROTTLE 0
+#endif
+#if KM_BENCH_THROTTLE != 0 && KM_BENCH_THROTTLE != 1
+#error "KM_BENCH_THROTTLE must be 0 or 1"
+#endif
+
 static const char *TAG = "MAIN";
 
 // KM_GPIO_Init()'s result. system_init() only ESP_LOGE's a failure and carries on, and
@@ -555,6 +562,7 @@ void control_task(void *ctx) {
     bool comms_stale = last_cmd == 0
         || (now - last_cmd) > pdMS_TO_TICKS(COMMS_WATCHDOG_MS);
     km_safety_inputs inputs = {
+        .bench_throttle_build = KM_BENCH_THROTTLE,
         .hardware_ok = g_gpio_init_err == ESP_OK && safety_output_ok,
         .steering_valid = steer_valid,
         .tank_valid = tank_valid,
@@ -787,7 +795,7 @@ void control_task(void *ctx) {
     }
     float thr = (float)KM_OBJ_GetObjectValue(TARGET_THROTTLE) / 255.0f;
     float brk = (float)KM_OBJ_GetObjectValue(TARGET_BRAKING) / 255.0f;
-    if (safety.allow_throttle) KM_ACT_SetOutput(c->throttle_act, thr);
+    KM_ACT_SetOutput(c->throttle_act, KM_SAFETY_ThrottleOutput(&safety, thr));
     KM_ACT_SetOutput(c->brake_act, brk);
     if (!safety.allow_steering) return;
     float target_raw = (float)KM_OBJ_GetObjectValue(TARGET_STEERING) / 1000.0f;
