@@ -2637,3 +2637,12 @@ The Hall task entry incorrectly said the dashboard could not display Hall fields
 kart-brain `src/kb_dashboard/kb_dashboard/hall_speed.py`, `protocol.py` and `index.html` now contain
 Hall parsing, display and calibrated speed estimation. The task wording was updated without
 marking hardware validation complete.
+
+
+## 2026-10-08 — Constant-throttle Hall validation held for wiring and Orin access
+
+The operator authorized a slow constant-throttle Hall test, then explicitly asked to wait while wiring. No motion command, firmware flash, reset, serial-port opening or hardware configuration change was performed. Live firmware, sensor validity and actuator behavior remain unverified.
+
+Read-only connectivity checks found no verified reachable Orin route. The historical lab address 10.7.20.142 has the same recorded SSH host key as 10.42.0.1, but its SSH and HTTP ports timed out. A bounded SSH-port scan of the Mac's current 10.7.20.0/24 network found only the Mac and an unidentified server with a different key. Detailed network evidence and the connectivity follow-up belong to kart-brain/history.md under 2026-10-08.
+
+After the operator confirms wiring is ready and access returns, inspect live firmware, safety status and controller scaling before motion. Existing blind throttle can supply a bounded open-loop effort through the normal autonomous Start/Stop gates with steering None; propulsion uses the MCP4922 analog output, not steering PWM. Begin only after the live bridge ratio is confirmed, compare all three Hall counters before/during/after a short operator-supervised run, and verify Stop. This session establishes no physical validation result.
