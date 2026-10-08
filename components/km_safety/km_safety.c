@@ -55,7 +55,7 @@ void KM_SAFETY_Update(km_safety_state *s, const km_safety_inputs *i)
         s->reset_hold = false;
     if (i->reset_token > 0 && i->reset_token > s->last_reset_token) {
         s->last_reset_token = i->reset_token;
-        if ((i->as_state == 0 || emergency) && !drive_faults && i->targets_zero) {
+        if ((i->as_state == 0 || emergency) && !blocking_faults && i->targets_zero) {
             s->latched_faults = 0;
             s->reset_hold = true;
             s->reset_ack_token = i->reset_token;

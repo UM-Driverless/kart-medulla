@@ -208,8 +208,46 @@ void test_bench_throttle_rejects_other_faults_and_modes(void) {
     setUp(); in.bench_throttle_build=true; in.mission=0; update();
     TEST_ASSERT_FALSE(state.allow_manual_pedal);
 }
+void test_bench_reset_requires_exact_mode_fresh_zero_and_deliberate_token(void) {
+    for (int fault=0; fault<13; fault++) {
+        setUp(); in.bench_throttle_build=true; in.tank_pressure_ok=false;
+        in.as_state=4; update();
+        switch(fault) {
+        case 0: break;
+        case 1: in.bench_throttle_build=false; break;
+        case 2: in.mission=0; break;
+        case 3: in.steering_mode=0; break;
+        case 4: in.targets_zero=false; break;
+        case 5: in.commands_fresh=false; break;
+        case 6: in.state_fresh=false; break;
+        case 7: in.tank_valid=false; break;
+        case 8: in.hardware_ok=false; break;
+        case 9: in.as_state=2; break;
+        case 10: in.steering_valid=false; break;
+        case 11: in.compressor_disabled=true; break;
+        case 12: in.mission=99; break;
+        }
+        in.reset_token=1; update();
+        TEST_ASSERT_EQUAL(fault==0 ? 1 : 0,state.reset_ack_token);
+        TEST_ASSERT_TRUE(state.active_faults & KM_SAFETY_TANK_LOW);
+        TEST_ASSERT_FALSE(state.allow_throttle);
+        TEST_ASSERT_FALSE(state.allow_steering);
+        TEST_ASSERT_FALSE(state.close_shutdown);
+        if (fault==0) {
+            TEST_ASSERT_EQUAL(0,state.latched_faults);
+            update(); TEST_ASSERT_EQUAL(0,state.latched_faults);
+            in.as_state=0; update(); TEST_ASSERT_FALSE(state.allow_throttle);
+        }
+    }
+    setUp(); in.bench_throttle_build=true; in.tank_pressure_ok=false;
+    in.as_state=4; in.state_fresh=false; in.reset_token=1; update();
+    in.state_fresh=true; update();
+    TEST_ASSERT_EQUAL(0,state.reset_ack_token); // Rejected token never becomes pending.
+    in.reset_token=2; update(); TEST_ASSERT_EQUAL(2,state.reset_ack_token);
+}
 int main(void) {
     UNITY_BEGIN();
+    RUN_TEST(test_bench_reset_requires_exact_mode_fresh_zero_and_deliberate_token);
     RUN_TEST(test_bench_throttle_policy_and_final_cap);
     RUN_TEST(test_bench_throttle_rejects_other_faults_and_modes);
     RUN_TEST(test_startup_missing_sensor_inhibits_without_latch);
